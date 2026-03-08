@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Diagnostics</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial; margin: 20px; background: #1a1a1a; color: #fff; }
+        .container { max-width: 600px; margin: auto; }
+        .diag { background: #333; padding: 15px; border-radius: 5px; font-family: monospace;
+               white-space: pre-wrap; word-wrap: break-word; }
+        button { background: #4CAF50; color: white; padding: 15px; border: none; 
+                border-radius: 5px; width: 100%; cursor: pointer; margin: 10px 0; }
+        button:hover { background: #45a049; }
+        a { color: #4CAF50; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Diagnostics</h1>
+        <button onclick="loadDiagnostics()">Refresh Diagnostics</button>
+        <div class="diag" id="diagnostics">Loading...</div>
+        <p><a href="/">← Back to Home</a></p>
+    </div>
+    <script>
+        function loadDiagnostics() {
+            fetch('/api/diagnostics')
+                .then(r => r.text())
+                .then(data => {
+                    document.getElementById('diagnostics').textContent = data;
+                })
+                .catch(err => {
+                    document.getElementById('diagnostics').textContent = 'Error loading diagnostics';
+                });
+        }
+        
+        loadDiagnostics();
+    </script>
+</body>
+</html>

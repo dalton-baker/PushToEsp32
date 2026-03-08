@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PushTo ESP32 Setup</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial; margin: 20px; background: #1a1a1a; color: #fff; }
+        .container { max-width: 600px; margin: auto; }
+        h1 { color: #4CAF50; }
+        .button { background: #4CAF50; color: white; padding: 15px; text-decoration: none; 
+                  display: inline-block; margin: 10px 0; border-radius: 5px; width: 100%;
+                  text-align: center; box-sizing: border-box; }
+        .button:hover { background: #45a049; }
+        .status { background: #333; padding: 15px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PushTo ESP32 Setup</h1>
+        <div class="status" id="status">Loading...</div>
+        <a href="/config.html" class="button">Configure Site</a>
+        <a href="/align.html" class="button">Alignment</a>
+        <a href="/diagnostics.html" class="button">Diagnostics</a>
+    </div>
+    <script>
+        function updateStatus() {
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('status').innerHTML = 
+                        'Sensors: ' + (data.sensorsOK ? 'OK' : 'ERROR') + '<br>' +
+                        'Site configured: ' + (data.siteValid ? 'YES' : 'NO') + '<br>' +
+                        'Aligned: ' + (data.aligned ? 'YES' : 'NO') + '<br>' +
+                        'IP: ' + data.ip;
+                })
+                .catch(err => {
+                    document.getElementById('status').innerHTML = 'Error loading status';
+                });
+        }
+        updateStatus();
+        setInterval(updateStatus, 5000);
+    </script>
+</body>
+</html>

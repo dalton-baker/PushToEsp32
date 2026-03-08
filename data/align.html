@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>2-Star Alignment</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial; margin: 20px; background: #1a1a1a; color: #fff; }
+        .container { max-width: 600px; margin: auto; }
+        .position { background: #333; padding: 15px; border-radius: 5px; margin: 10px 0; 
+                   font-family: monospace; }
+        input { width: 100%; padding: 10px; margin: 5px 0; background: #333; 
+               color: #fff; border: 1px solid #555; border-radius: 5px; box-sizing: border-box; }
+        button { background: #4CAF50; color: white; padding: 15px; border: none; 
+                border-radius: 5px; width: 100%; cursor: pointer; margin: 5px 0; }
+        button:hover { background: #45a049; }
+        button.picker { background: #2196F3; padding: 10px; }
+        button.picker:hover { background: #0b7dda; }
+        button.clear { background: #f44336; }
+        button.clear:hover { background: #da190b; }
+        a { color: #4CAF50; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .star-picker { background: #1f3d5d; padding: 15px; border-radius: 5px; margin: 10px 0;
+                      border-left: 4px solid #2196F3; max-height: 300px; overflow-y: auto; }
+        .star-picker.hidden { display: none; }
+        .star-item { background: #2a2a2a; padding: 10px; margin: 5px 0; border-radius: 3px; cursor: pointer; }
+        .star-item:hover { background: #3a3a3a; }
+        .star-name { font-weight: bold; color: #64B5F6; }
+        .star-info { font-size: 0.9em; color: #aaa; margin-top: 3px; }
+        #starSearch { margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>2-Star Alignment</h1>
+        <div class="position" id="position">Loading position...</div>
+        
+        <h2>Star 1</h2>
+        <button type="button" class="picker" onclick="showStarPicker(1)">⭐ Pick from Star List</button>
+        <div id="starPicker1" class="star-picker hidden">
+            <input type="text" id="starSearch1" placeholder="Search stars..." onkeyup="filterStars(1)">
+            <div id="starList1"></div>
+        </div>
+        <input type="text" id="star1ra" placeholder="RA (HH:MM:SS)" readonly>
+        <input type="text" id="star1dec" placeholder="Dec (+/-DD:MM:SS)" readonly>
+        <input type="text" id="star1name" placeholder="Star name" readonly style="background: #2a2a2a;">
+        <button onclick="setStar(1)">Set Star 1</button>
+        
+        <h2>Star 2</h2>
+        <button type="button" class="picker" onclick="showStarPicker(2)">⭐ Pick from Star List</button>
+        <div id="starPicker2" class="star-picker hidden">
+            <input type="text" id="starSearch2" placeholder="Search stars..." onkeyup="filterStars(2)">
+            <div id="starList2"></div>
+        </div>
+        <input type="text" id="star2ra" placeholder="RA (HH:MM:SS)" readonly>
+        <input type="text" id="star2dec" placeholder="Dec (+/-DD:MM:SS)" readonly>
+        <input type="text" id="star2name" placeholder="Star name" readonly style="background: #2a2a2a;">
+        <button onclick="setStar(2)">Set Star 2</button>
+        
+        <button onclick="clearAlignment()" class="clear">Clear Alignment</button>
+        <p id="message"></p>
+        <p><a href="/">← Back to Home</a></p>
+    </div>
+    <script>
+        let starsData = [];
+        
+        // Load stars data
+        fetch('/stars.json')
+            .then(r => r.json())
+            .then(data => {
+                starsData = data;
+                populateStarLists();
+            })
+            .catch(err => {
+                console.error('Could not load stars:', err);
+            });
+        
+        function raDecimalToHMS(raHours) {
+            const hours = Math.floor(raHours);
+            const minutes = Math.floor((raHours - hours) * 60);
+            const seconds = Math.round(((raHours - hours) * 60 - minutes) * 60);
+            return hours.toString().padStart(2, '0') + ':' + 
+                   minutes.toString().padStart(2, '0') + ':' + 
+                   seconds.toString().padStart(2, '0');
+        }
+        
+        function decDecimalToDMS(decDegrees) {
+            const sign = decDegrees >= 0 ? '+' : '-';
+            const absVal = Math.abs(decDegrees);
+            const degrees = Math.floor(absVal);
+            const minutes = Math.floor((absVal - degrees) * 60);
+            const seconds = Math.round(((absVal - degrees) * 60 - minutes) * 60);
+            return sign + degrees.toString().padStart(2, '0') + ':' + 
+                   minutes.toString().padStart(2, '0') + ':' + 
+                   seconds.toString().padStart(2, '0');
+        }
+        
+        function populateStarLists() {
+            for (let num = 1; num <= 2; num++) {
+                const listEl = document.getElementById('starList' + num);
+                listEl.innerHTML = '';
+                
+                starsData.forEach(star => {
+                    const item = document.createElement('div');
+                    item.className = 'star-item';
+                    item.dataset.name = star.proper.toLowerCase();
+                    item.dataset.bf = (star.bf || '').toLowerCase();
+                    item.dataset.con = (star.con || '').toLowerCase();
+                    
+                    const ra = raDecimalToHMS(star.ra);
+                    const dec = decDecimalToDMS(star.dec);
+                    
+                    item.innerHTML = 
+                        '<div class="star-name">' + star.proper + '</div>' +
+                        '<div class="star-info">' + 
+                        (star.bf || '') + ' | ' + star.con + ' | Mag ' + star.mag.toFixed(2) + 
+                        '<br>RA: ' + ra + ' | Dec: ' + dec +
+                        '</div>';
+                    
+                    item.onclick = function() {
+                        selectStar(num, star.proper, ra, dec);
+                    };
+                    
+                    listEl.appendChild(item);
+                });
+            }
+        }
+        
+        function showStarPicker(num) {
+            const picker = document.getElementById('starPicker' + num);
+            picker.classList.toggle('hidden');
+            if (!picker.classList.contains('hidden')) {
+                document.getElementById('starSearch' + num).focus();
+            }
+        }
+        
+        function filterStars(num) {
+            const search = document.getElementById('starSearch' + num).value.toLowerCase();
+            const items = document.getElementById('starList' + num).getElementsByClassName('star-item');
+            
+            for (let item of items) {
+                const name = item.dataset.name;
+                const bf = item.dataset.bf;
+                const con = item.dataset.con;
+                
+                if (name.includes(search) || bf.includes(search) || con.includes(search)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            }
+        }
+        
+        function selectStar(num, name, ra, dec) {
+            document.getElementById('star' + num + 'ra').value = ra;
+            document.getElementById('star' + num + 'dec').value = dec;
+            document.getElementById('star' + num + 'name').value = name;
+            document.getElementById('starPicker' + num).classList.add('hidden');
+            document.getElementById('starSearch' + num).value = '';
+            filterStars(num); // Reset filter
+        }
+        
+        function updatePosition() {
+            fetch('/api/position')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('position').innerHTML = 
+                        'Azimuth: ' + data.az.toFixed(2) + ' deg<br>' +
+                        'Altitude: ' + data.alt.toFixed(2) + ' deg<br>' +
+                        'RA: ' + data.ra + '<br>' +
+                        'Dec: ' + data.dec;
+                })
+                .catch(err => {
+                    document.getElementById('position').innerHTML = 'Error loading position';
+                });
+        }
+        
+        function setStar(num) {
+            var ra = document.getElementById('star' + num + 'ra').value;
+            var dec = document.getElementById('star' + num + 'dec').value;
+            
+            var params = 'star=' + num + '&ra=' + encodeURIComponent(ra) + '&dec=' + encodeURIComponent(dec);
+            
+            fetch('/api/align', { 
+                method: 'POST', 
+                body: params, 
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'} 
+            })
+            .then(r => r.text())
+            .then(msg => {
+                document.getElementById('message').innerHTML = '✅ ' + msg;
+                document.getElementById('message').style.color = '#4CAF50';
+            })
+            .catch(err => {
+                document.getElementById('message').innerHTML = '❌ Error setting star';
+                document.getElementById('message').style.color = '#f44336';
+            });
+        }
+        
+        function clearAlignment() {
+            fetch('/api/align?clear=1', { method: 'POST' })
+                .then(r => r.text())
+                .then(msg => {
+                    document.getElementById('message').innerHTML = '✅ ' + msg;
+                    document.getElementById('message').style.color = '#4CAF50';
+                })
+                .catch(err => {
+                    document.getElementById('message').innerHTML = '❌ Error clearing alignment';
+                    document.getElementById('message').style.color = '#f44336';
+                });
+        }
+        
+        updatePosition();
+        setInterval(updatePosition, 1000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Site Configuration</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial; margin: 20px; background: #1a1a1a; color: #fff; }
+        .container { max-width: 600px; margin: auto; }
+        input, textarea { width: 100%; padding: 10px; margin: 5px 0; background: #333; 
+               color: #fff; border: 1px solid #555; border-radius: 5px; box-sizing: border-box; }
+        textarea { font-family: monospace; resize: vertical; min-height: 60px; }
+        button { background: #4CAF50; color: white; padding: 15px; border: none; 
+                border-radius: 5px; width: 100%; cursor: pointer; margin: 5px 0; }
+        button:hover { background: #45a049; }
+        button.helper { background: #2196F3; margin-bottom: 10px; }
+        button.helper:hover { background: #0b7dda; }
+        button.parse { background: #FF9800; padding: 10px; }
+        button.parse:hover { background: #F57C00; }
+        label { display: block; margin-top: 10px; font-weight: bold; }
+        .helper-box { background: #1f3d5d; padding: 15px; border-radius: 5px; margin: 15px 0;
+                     border-left: 4px solid #2196F3; }
+        .helper-box h3 { margin-top: 0; color: #64B5F6; }
+        .helper-box ol { margin: 10px 0; padding-left: 20px; }
+        .helper-box li { margin: 8px 0; line-height: 1.5; }
+        .status { background: #333; padding: 15px; border-radius: 5px; margin: 10px 0; 
+                 font-size: 0.9em; }
+        .status.error { background: #5d1f1f; color: #ffcccc; }
+        .status.success { background: #1f5d2f; color: #ccffcc; }
+        .status.info { background: #1f3d5d; color: #cce5ff; }
+        a { color: #4CAF50; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .collapse { display: none; }
+        .collapse.show { display: block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Site Configuration</h1>
+        
+        <button type="button" class="helper" onclick="toggleHelper()">
+            📍 Get Location from Phone GPS
+        </button>
+        
+        <div class="helper-box collapse" id="helperBox">
+            <h3>Easy Methods to Get Your Coordinates:</h3>
+            
+            <strong>📱 iPhone - Compass App (Easiest!):</strong>
+            <ol style="margin-bottom: 15px;">
+                <li>Open the <strong>Compass</strong> app</li>
+                <li>Your coordinates are shown at the bottom (e.g., "37.7749° N, 122.4194° W")</li>
+                <li><strong>Tap and hold</strong> on the coordinates to copy</li>
+                <li>Paste below</li>
+            </ol>
+            
+            <strong>🤖 Android - Drop a Pin:</strong>
+            <ol style="margin-bottom: 15px;">
+                <li>Open <strong>Google Maps</strong></li>
+                <li><strong>Long-press</strong> anywhere on the map to drop a pin</li>
+                <li>Coordinates appear at the bottom in the search box</li>
+                <li><strong>Tap the coordinates</strong> to select them, then copy</li>
+            </ol>
+            
+            <strong>💡 Or Just Type Them:</strong>
+            <p style="margin: 10px 0;">You can also just estimate and type directly in the fields below. For astronomy, ±0.01° (about 1km) is fine!</p>
+            
+            <textarea id="coordPaste" placeholder="Paste coordinates here (e.g., 37.7749, -122.4194 or 37.7749° N, 122.4194° W)"></textarea>
+            <button type="button" class="parse" onclick="parseCoordinates()">Parse & Fill Fields</button>
+        </div>
+        
+        <div class="status info" id="status" style="display: none;"></div>
+        
+        <form id="configForm">
+            <label>Latitude (decimal degrees):</label>
+            <input type="number" step="0.000001" name="lat" id="lat" placeholder="e.g., 37.7749" required>
+            
+            <label>Longitude (decimal degrees):</label>
+            <input type="number" step="0.000001" name="lon" id="lon" placeholder="e.g., -122.4194" required>
+            
+            <label>Timezone (UTC offset in hours):</label>
+            <input type="number" step="0.5" name="tz" id="tz" placeholder="e.g., -8" required>
+            <button type="button" onclick="detectTimezone()" style="background: #FF9800; padding: 10px; margin: 5px 0;">
+                🕐 Auto-Detect Timezone
+            </button>
+            
+            <button type="submit">Save Configuration</button>
+        </form>
+        
+        <p id="message"></p>
+        <p><a href="/">← Back to Home</a></p>
+    </div>
+    
+    <script>
+        // Load current config on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            fetch('/api/config')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.latitude !== undefined) document.getElementById('lat').value = data.latitude.toFixed(6);
+                    if (data.longitude !== undefined) document.getElementById('lon').value = data.longitude.toFixed(6);
+                    if (data.timezone !== undefined) document.getElementById('tz').value = (data.timezone / 3600).toFixed(1);
+                })
+                .catch(err => console.log('Could not load current config'));
+        });
+        
+        function toggleHelper() {
+            const box = document.getElementById('helperBox');
+            box.classList.toggle('show');
+        }
+        
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('status');
+            statusEl.innerHTML = message;
+            statusEl.className = 'status ' + type;
+            statusEl.style.display = 'block';
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 5000);
+        }
+        
+        function detectTimezone() {
+            const timezoneOffset = -new Date().getTimezoneOffset() / 60;
+            document.getElementById('tz').value = timezoneOffset;
+            showStatus('✓ Timezone detected: UTC' + (timezoneOffset >= 0 ? '+' : '') + timezoneOffset, 'success');
+        }
+        
+        function parseCoordinates() {
+            const input = document.getElementById('coordPaste').value.trim();
+            
+            if (!input) {
+                showStatus('Please paste coordinates first', 'error');
+                return;
+            }
+            
+            let lat = null;
+            let lon = null;
+            
+            // Remove various formatting characters
+            let cleaned = input.replace(/[°'"]/g, ' ')
+                              .replace(/\s+/g, ' ')
+                              .replace(/[,\s]+/g, ' ')
+                              .trim();
+            
+            // Try different patterns
+            
+            // Pattern 1: "37.7749 -122.4194" or "37.7749,-122.4194"
+            let match = input.match(/(-?\d+\.?\d*)\s*,?\s*(-?\d+\.?\d*)/);
+            if (match) {
+                lat = parseFloat(match[1]);
+                lon = parseFloat(match[2]);
+            }
+            
+            // Pattern 2: "37.7749° N 122.4194° W" or similar with N/S/E/W
+            if (!match || isNaN(lat) || isNaN(lon)) {
+                match = cleaned.match(/(\d+\.?\d*)\s*([NS])\s*(\d+\.?\d*)\s*([EW])/i);
+                if (match) {
+                    lat = parseFloat(match[1]);
+                    lon = parseFloat(match[3]);
+                    if (match[2].toUpperCase() === 'S') lat = -lat;
+                    if (match[4].toUpperCase() === 'W') lon = -lon;
+                }
+            }
+            
+            // Pattern 3: Just check for N/S/E/W in the string for simple numbers
+            if (lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon)) {
+                const upperInput = input.toUpperCase();
+                if (upperInput.includes('S') && lat > 0) lat = -lat;
+                if (upperInput.includes('W') && lon > 0) lon = -lon;
+            }
+            
+            // Validate and swap if needed (user might have entered lon,lat)
+            if (lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon)) {
+                // If lat is > 90, probably swapped with longitude
+                if (Math.abs(lat) > 90 && Math.abs(lon) <= 90) {
+                    [lat, lon] = [lon, lat];
+                }
+                
+                // Validate final ranges
+                if (lat < -90 || lat > 90) {
+                    showStatus('Latitude must be between -90 and 90. Found: ' + lat, 'error');
+                    return;
+                }
+                if (lon < -180 || lon > 180) {
+                    showStatus('Longitude must be between -180 and 180. Found: ' + lon, 'error');
+                    return;
+                }
+                
+                document.getElementById('lat').value = lat.toFixed(6);
+                document.getElementById('lon').value = lon.toFixed(6);
+                showStatus('✓ Coordinates parsed! Lat: ' + lat.toFixed(4) + '°, Lon: ' + lon.toFixed(4) + '°', 'success');
+                
+                // Auto-detect timezone too
+                detectTimezone();
+            } else {
+                showStatus('Could not parse coordinates. Try format: 37.7749, -122.4194<br>Or just type them directly in the fields below.', 'error');
+            }
+        }
+        
+        // Form submission
+        document.getElementById('configForm').onsubmit = function(e) {
+            e.preventDefault();
+            
+            const lat = document.getElementById('lat').value;
+            const lon = document.getElementById('lon').value;
+            const tz = document.getElementById('tz').value;
+            
+            const data = 'lat=' + lat + '&lon=' + lon + '&tz=' + tz;
+            
+            fetch('/api/config', { 
+                method: 'POST', 
+                body: data,
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+            })
+            .then(r => r.text())
+            .then(msg => {
+                document.getElementById('message').innerHTML = '✅ ' + msg;
+                document.getElementById('message').style.color = '#4CAF50';
+            })
+            .catch(err => {
+                document.getElementById('message').innerHTML = '❌ Error saving configuration';
+                document.getElementById('message').style.color = '#f44336';
+            });
+        };
+    </script>
+</body>
+</html>
