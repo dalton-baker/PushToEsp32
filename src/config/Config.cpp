@@ -3,7 +3,6 @@
 Config::Config() {
     site.latitude = 0.0;
     site.longitude = 0.0;
-    site.timezone = 0;
     site.valid = false;
     aligned = false;
     deviceName = "PushTo-ESP32";
@@ -18,7 +17,6 @@ void Config::save() {
     // Save site configuration
     prefs.putDouble("lat", site.latitude);
     prefs.putDouble("lon", site.longitude);
-    prefs.putInt("tz", site.timezone);
     prefs.putBool("site_valid", site.valid);
     
     // Save alignment stars
@@ -41,7 +39,6 @@ void Config::load() {
     // Load site configuration
     site.latitude = prefs.getDouble("lat", 0.0);
     site.longitude = prefs.getDouble("lon", 0.0);
-    site.timezone = prefs.getInt("tz", 0);
     site.valid = prefs.getBool("site_valid", false);
     
     // Load alignment stars
@@ -67,10 +64,9 @@ void Config::reset() {
     save();
 }
 
-void Config::setSite(double lat, double lon, int tz) {
+void Config::setSite(double lat, double lon) {
     site.latitude = lat;
     site.longitude = lon;
-    site.timezone = tz;
     site.valid = true;
     save();
 }

@@ -14,7 +14,6 @@ struct AlignmentStar {
 struct SiteConfig {
     double latitude;   // Site latitude (degrees, positive north)
     double longitude;  // Site longitude (degrees, positive east)
-    int timezone;      // UTC offset in seconds
     bool valid;
 };
 
@@ -28,7 +27,7 @@ public:
     void reset();
     
     // Site configuration
-    void setSite(double lat, double lon, int tz);
+    void setSite(double lat, double lon);
     SiteConfig getSite();
     
     // Alignment stars

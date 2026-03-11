@@ -12,17 +12,121 @@
                   text-align: center; box-sizing: border-box; }
         .button:hover { background: #45a049; }
         .status { background: #333; padding: 15px; border-radius: 5px; margin: 10px 0; }
+        .coordinates { background: #2a2a2a; padding: 20px; border-radius: 5px; margin: 20px 0; 
+                      border: 2px solid #4CAF50; }
+        .coord-row { display: flex; justify-content: space-between; margin: 10px 0; 
+                    font-size: 18px; }
+        .coord-label { font-weight: bold; color: #4CAF50; }
+        .coord-value { font-family: 'Courier New', monospace; color: #fff; }
+        .ws-status { font-size: 12px; color: #888; margin-top: 10px; }
+        .ws-connected { color: #4CAF50; }
+        .ws-disconnected { color: #f44336; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>PushTo ESP32 Setup</h1>
+        
+        <div class="coordinates">
+            <h2 style="margin-top: 0; color: #4CAF50;">Current Position</h2>
+            <div class="coord-row">
+                <span class="coord-label">Azimuth:</span>
+                <span class="coord-value" id="az">---.--°</span>
+            </div>
+            <div class="coord-row">
+                <span class="coord-label">Altitude:</span>
+                <span class="coord-value" id="alt">---.--°</span>
+            </div>
+            <div class="coord-row">
+                <span class="coord-label">RA:</span>
+                <span class="coord-value" id="ra">--.----h</span>
+            </div>
+            <div class="coord-row">
+                <span class="coord-label">Dec:</span>
+                <span class="coord-value" id="dec">---.----°</span>
+            </div>
+            <div class="ws-status" id="wsStatus">Connecting...</div>
+        </div>
+        
         <div class="status" id="status">Loading...</div>
         <a href="/config.html" class="button">Configure Site</a>
         <a href="/align.html" class="button">Alignment</a>
         <a href="/diagnostics.html" class="button">Diagnostics</a>
     </div>
     <script>
+        let ws = null;
+        let wsReconnectTimer = null;
+        let statusUpdateTimer = null;
+        
+        function updateWSStatus(message, connected) {
+            const statusEl = document.getElementById('wsStatus');
+            statusEl.textContent = message;
+            statusEl.className = connected ? 'ws-status ws-connected' : 'ws-status ws-disconnected';
+        }
+        
+        function connectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = protocol + '//' + window.location.host + '/ws';
+            
+            updateWSStatus('Connecting...', false);
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                console.log('WebSocket connected');
+                updateWSStatus('Connected', true);
+                if (wsReconnectTimer) {
+                    clearTimeout(wsReconnectTimer);
+                    wsReconnectTimer = null;
+                }
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    document.getElementById('az').textContent = parseFloat(data.az).toFixed(2) + '°';
+                    document.getElementById('alt').textContent = parseFloat(data.alt).toFixed(2) + '°';
+                    document.getElementById('ra').textContent = parseFloat(data.ra).toFixed(4) + 'h';
+                    document.getElementById('dec').textContent = parseFloat(data.dec).toFixed(4) + '°';
+                } catch (e) {
+                    console.error('Error parsing WebSocket data:', e);
+                }
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                updateWSStatus('Connection error', false);
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket disconnected');
+                updateWSStatus('Disconnected', false);
+                ws = null;
+                
+                // Attempt to reconnect if page is visible
+                if (!document.hidden) {
+                    wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+                }
+            };
+        }
+        
+        function disconnectWebSocket() {
+            if (wsReconnectTimer) {
+                clearTimeout(wsReconnectTimer);
+                wsReconnectTimer = null;
+            }
+            if (ws) {
+                console.log('Closing WebSocket connection');
+                ws.close();
+                ws = null;
+                updateWSStatus('Tab inactive', false);
+            }
+        }
+        
         function updateStatus() {
             fetch('/api/status')
                 .then(r => r.json())
@@ -37,8 +141,32 @@
                     document.getElementById('status').innerHTML = 'Error loading status';
                 });
         }
+        
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                console.log('Page hidden - disconnecting WebSocket');
+                disconnectWebSocket();
+            } else {
+                console.log('Page visible - connecting WebSocket');
+                connectWebSocket();
+            }
+        });
+        
+        // Initial connection
+        connectWebSocket();
         updateStatus();
-        setInterval(updateStatus, 5000);
+        
+        // Update status periodically (less frequently than coordinates)
+        statusUpdateTimer = setInterval(updateStatus, 5000);
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            disconnectWebSocket();
+            if (statusUpdateTimer) {
+                clearInterval(statusUpdateTimer);
+            }
+        });
     </script>
 </body>
 </html>

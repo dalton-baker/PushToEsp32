@@ -76,14 +76,15 @@
             <label>Longitude (decimal degrees):</label>
             <input type="number" step="0.000001" name="lon" id="lon" placeholder="e.g., -122.4194" required>
             
-            <label>Timezone (UTC offset in hours):</label>
-            <input type="number" step="0.5" name="tz" id="tz" placeholder="e.g., -8" required>
-            <button type="button" onclick="detectTimezone()" style="background: #FF9800; padding: 10px; margin: 5px 0;">
-                🕐 Auto-Detect Timezone
-            </button>
-            
             <button type="submit">Save Configuration</button>
         </form>
+        
+        <h2 style="margin-top: 30px;">Time Synchronization</h2>
+        <p style="font-size: 0.9em; color: #aaa;">Sync the ESP32 clock with your device's UTC time:</p>
+        <button type="button" onclick="syncTime()" style="background: #FF9800;">
+            🕐 Sync Time Now
+        </button>
+        <p id="timeMessage" style="font-size: 0.9em;"></p>
         
         <p id="message"></p>
         <p><a href="/">← Back to Home</a></p>
@@ -97,7 +98,6 @@
                 .then(data => {
                     if (data.latitude !== undefined) document.getElementById('lat').value = data.latitude.toFixed(6);
                     if (data.longitude !== undefined) document.getElementById('lon').value = data.longitude.toFixed(6);
-                    if (data.timezone !== undefined) document.getElementById('tz').value = (data.timezone / 3600).toFixed(1);
                 })
                 .catch(err => console.log('Could not load current config'));
         });
@@ -105,6 +105,31 @@
         function toggleHelper() {
             const box = document.getElementById('helperBox');
             box.classList.toggle('show');
+        }
+        
+        function syncTime() {
+            // Get current UTC time as Unix timestamp (seconds since 1970)
+            const timestamp = Math.floor(Date.now() / 1000);
+            
+            const data = 'timestamp=' + timestamp;
+            
+            document.getElementById('timeMessage').innerHTML = 'Syncing...';
+            document.getElementById('timeMessage').style.color = '#FF9800';
+            
+            fetch('/api/time', { 
+                method: 'POST', 
+                body: data,
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+            })
+            .then(r => r.text())
+            .then(msg => {
+                document.getElementById('timeMessage').innerHTML = '✅ ' + msg;
+                document.getElementById('timeMessage').style.color = '#4CAF50';
+            })
+            .catch(err => {
+                document.getElementById('timeMessage').innerHTML = '❌ Error syncing time';
+                document.getElementById('timeMessage').style.color = '#f44336';
+            });
         }
         
         function showStatus(message, type) {
@@ -115,12 +140,6 @@
             setTimeout(() => {
                 statusEl.style.display = 'none';
             }, 5000);
-        }
-        
-        function detectTimezone() {
-            const timezoneOffset = -new Date().getTimezoneOffset() / 60;
-            document.getElementById('tz').value = timezoneOffset;
-            showStatus('✓ Timezone detected: UTC' + (timezoneOffset >= 0 ? '+' : '') + timezoneOffset, 'success');
         }
         
         function parseCoordinates() {
@@ -187,9 +206,6 @@
                 document.getElementById('lat').value = lat.toFixed(6);
                 document.getElementById('lon').value = lon.toFixed(6);
                 showStatus('✓ Coordinates parsed! Lat: ' + lat.toFixed(4) + '°, Lon: ' + lon.toFixed(4) + '°', 'success');
-                
-                // Auto-detect timezone too
-                detectTimezone();
             } else {
                 showStatus('Could not parse coordinates. Try format: 37.7749, -122.4194<br>Or just type them directly in the fields below.', 'error');
             }
@@ -201,9 +217,8 @@
             
             const lat = document.getElementById('lat').value;
             const lon = document.getElementById('lon').value;
-            const tz = document.getElementById('tz').value;
             
-            const data = 'lat=' + lat + '&lon=' + lon + '&tz=' + tz;
+            const data = 'lat=' + lat + '&lon=' + lon;
             
             fetch('/api/config', { 
                 method: 'POST', 

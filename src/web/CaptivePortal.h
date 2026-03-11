@@ -19,12 +19,17 @@ public:
     bool isAPMode();
     String getAPIP();
     
+    // WebSocket methods
+    void broadcastPosition();
+    bool hasWebSocketClients();
+    
 private:
     Config* _config;
     SensorManager* _sensors;
     Coordinates* _coords;
     
     AsyncWebServer* server;
+    AsyncWebSocket* ws;
     DNSServer* dnsServer;
     
     bool apMode;
@@ -33,6 +38,10 @@ private:
     // Web page setup
     void setupRoutes();
     
+    // WebSocket event handler
+    void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, 
+                          AwsEventType type, void* arg, uint8_t* data, size_t len);
+    
     // API handlers
     void handleGetConfig(AsyncWebServerRequest* request);
     void handleConfigSubmit(AsyncWebServerRequest* request);
@@ -40,6 +49,7 @@ private:
     void handleGetStatus(AsyncWebServerRequest* request);
     void handleGetPosition(AsyncWebServerRequest* request);
     void handleGetDiagnostics(AsyncWebServerRequest* request);
+    void handleSetTime(AsyncWebServerRequest* request);
 };
 
 #endif // CAPTIVE_PORTAL_H

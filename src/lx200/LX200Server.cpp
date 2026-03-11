@@ -162,14 +162,11 @@ void LX200Server::processCommand(WiFiClient& client, String cmd) {
     } else if (cmd.startsWith(":GC")) {
         handleGetCalendarDate(client);
     } else if (cmd.startsWith(":GW")) {
-        // Get UTC offset hours - return the stored timezone
-        SiteConfig site = _config->getSite();
-        char buffer[8];
-        sprintf(buffer, "%+03d", (int)site.timezone);
-        client.print(buffer);
+        // Get UTC offset hours - always return 0 (using UTC internally)
+        client.print("+00");
         client.write("#");
         client.flush();
-        Serial.println("-> Sent UTC offset");
+        Serial.println("-> Sent UTC offset (always UTC)");
     } else if (cmd.startsWith(":GVD")) {
         handleGetFirmwareDate(client);
     } else if (cmd.startsWith(":GL")) {
@@ -359,7 +356,7 @@ double LX200Server::parseDec(String decStr) {
 void LX200Server::handleSetSiteLatitude(WiFiClient& client, String value) {
     double lat = parseDec(value);
     SiteConfig site = _config->getSite();
-    _config->setSite(lat, site.longitude, site.timezone);
+    _config->setSite(lat, site.longitude);
     
     Serial.print("Site latitude set to: ");
     Serial.println(lat);
@@ -371,7 +368,7 @@ void LX200Server::handleSetSiteLatitude(WiFiClient& client, String value) {
 void LX200Server::handleSetSiteLongitude(WiFiClient& client, String value) {
     double lon = parseDec(value);
     SiteConfig site = _config->getSite();
-    _config->setSite(site.latitude, lon, site.timezone);
+    _config->setSite(site.latitude, lon);
     
     Serial.print("Site longitude set to: ");
     Serial.println(lon);
@@ -472,12 +469,10 @@ void LX200Server::handleSetDate(WiFiClient& client, String value) {
 
 void LX200Server::handleSetUTCOffset(WiFiClient& client, String value) {
     // Parse timezone offset like +07.0 or -05.0
+    // We ignore this since we use UTC internally
     double offset = value.toFloat();
     
-    SiteConfig site = _config->getSite();
-    _config->setSite(site.latitude, site.longitude, offset);
-    
-    Serial.print("UTC offset set to: ");
+    Serial.print("UTC offset ignored (using UTC): ");
     Serial.println(offset);
     
     client.write("1"); // Success
@@ -531,16 +526,8 @@ void LX200Server::handleGetLocalTime12(WiFiClient& client) {
 }
 
 void LX200Server::handleGetUTCOffsetFormatted(WiFiClient& client) {
-    // Return UTC offset in sHH:MM format
-    SiteConfig site = _config->getSite();
-    int offset = (int)site.timezone;
-    int hours = abs(offset);
-    int minutes = (int)((abs(site.timezone) - hours) * 60);
-    
-    char buffer[8];
-    sprintf(buffer, "%c%02d:%02d", (offset >= 0 ? '+' : '-'), hours, minutes);
-    
-    client.print(buffer);
+    // Return UTC offset in sHH:MM format - always +00:00 (UTC)
+    client.print("+00:00");
     client.write("#");
     client.flush();
 }

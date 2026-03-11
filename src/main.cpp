@@ -91,6 +91,11 @@ void networkTask(void* parameter) {
         // Handle LX200 clients
         lx200.handle();
         
+        // Broadcast position data to WebSocket clients (if any)
+        if (portal.hasWebSocketClients()) {
+            portal.broadcastPosition();
+        }
+        
         // Blink LED if client connected
         static bool ledState = false;
         if (lx200.isClientConnected()) {

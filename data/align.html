@@ -159,19 +159,37 @@
             filterStars(num); // Reset filter
         }
         
-        function updatePosition() {
-            fetch('/api/position')
-                .then(r => r.json())
-                .then(data => {
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = protocol + '//' + window.location.host + '/ws';
+            
+            const ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                console.log('WebSocket connected');
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
                     document.getElementById('position').innerHTML = 
-                        'Azimuth: ' + data.az.toFixed(2) + ' deg<br>' +
-                        'Altitude: ' + data.alt.toFixed(2) + ' deg<br>' +
-                        'RA: ' + data.ra + '<br>' +
-                        'Dec: ' + data.dec;
-                })
-                .catch(err => {
-                    document.getElementById('position').innerHTML = 'Error loading position';
-                });
+                        'Azimuth: ' + parseFloat(data.az).toFixed(2) + '°<br>' +
+                        'Altitude: ' + parseFloat(data.alt).toFixed(2) + '°<br>' +
+                        'RA: ' + parseFloat(data.ra).toFixed(4) + 'h<br>' +
+                        'Dec: ' + parseFloat(data.dec).toFixed(4) + '°';
+                } catch (e) {
+                    console.error('Error parsing WebSocket data:', e);
+                }
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket disconnected, reconnecting...');
+                setTimeout(connectWebSocket, 3000);
+            };
         }
         
         function setStar(num) {
@@ -209,8 +227,7 @@
                 });
         }
         
-        updatePosition();
-        setInterval(updatePosition, 1000);
+        connectWebSocket();
     </script>
 </body>
 </html>

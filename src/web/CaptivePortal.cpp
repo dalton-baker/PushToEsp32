@@ -1,6 +1,7 @@
 #include "CaptivePortal.h"
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+#include <sys/time.h>
 
 #define AP_SSID "PushTo-Setup"
 #define AP_PASSWORD "telescope"
@@ -11,6 +12,7 @@ CaptivePortal::CaptivePortal(Config* config, SensorManager* sensors, Coordinates
     _sensors = sensors;
     _coords = coords;
     server = nullptr;
+    ws = nullptr;
     dnsServer = nullptr;
     apMode = true;
 }
@@ -37,6 +39,15 @@ void CaptivePortal::begin() {
     
     // Start web server
     server = new AsyncWebServer(80);
+    
+    // Setup WebSocket
+    ws = new AsyncWebSocket("/ws");
+    ws->onEvent([this](AsyncWebSocket* server, AsyncWebSocketClient* client, 
+                       AwsEventType type, void* arg, uint8_t* data, size_t len) {
+        this->onWebSocketEvent(server, client, type, arg, data, len);
+    });
+    server->addHandler(ws);
+    
     setupRoutes();
     server->begin();
     
@@ -46,6 +57,9 @@ void CaptivePortal::begin() {
 void CaptivePortal::handle() {
     if (dnsServer) {
         dnsServer->processNextRequest();
+    }
+    if (ws) {
+        ws->cleanupClients();
     }
 }
 
@@ -114,6 +128,11 @@ void CaptivePortal::setupRoutes() {
         handleGetDiagnostics(request);
     });
     
+    // API: Set time
+    server->on("/api/time", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        handleSetTime(request);
+    });
+    
     // Captive portal redirect - for old /config etc URLs
     server->on("/config", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->redirect("/config.html");
@@ -139,7 +158,6 @@ void CaptivePortal::handleGetConfig(AsyncWebServerRequest* request) {
     
     doc["latitude"] = site.latitude;
     doc["longitude"] = site.longitude;
-    doc["timezone"] = site.timezone;
     doc["valid"] = site.valid;
     
     String response;
@@ -148,12 +166,11 @@ void CaptivePortal::handleGetConfig(AsyncWebServerRequest* request) {
 }
 
 void CaptivePortal::handleConfigSubmit(AsyncWebServerRequest* request) {
-    if (request->hasParam("lat", true) && request->hasParam("lon", true) && request->hasParam("tz", true)) {
+    if (request->hasParam("lat", true) && request->hasParam("lon", true)) {
         double lat = request->getParam("lat", true)->value().toDouble();
         double lon = request->getParam("lon", true)->value().toDouble();
-        int tz = request->getParam("tz", true)->value().toInt() * 3600;
         
-        _config->setSite(lat, lon, tz);
+        _config->setSite(lat, lon);
         request->send(200, "text/plain", "Configuration saved!");
     } else {
         request->send(400, "text/plain", "Missing parameters");
@@ -219,4 +236,79 @@ void CaptivePortal::handleGetPosition(AsyncWebServerRequest* request) {
 void CaptivePortal::handleGetDiagnostics(AsyncWebServerRequest* request) {
     String diag = _sensors->getDiagnostics();
     request->send(200, "text/plain", diag);
+}
+
+void CaptivePortal::onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, 
+                                      AwsEventType type, void* arg, uint8_t* data, size_t len) {
+    switch(type) {
+        case WS_EVT_CONNECT:
+            Serial.printf("[WebSocket] Client #%u connected from %s\n", 
+                         client->id(), client->remoteIP().toString().c_str());
+            break;
+            
+        case WS_EVT_DISCONNECT:
+            Serial.printf("[WebSocket] Client #%u disconnected\n", client->id());
+            break;
+            
+        case WS_EVT_DATA:
+            // We don't expect data from clients, but handle it gracefully
+            break;
+            
+        case WS_EVT_PONG:
+        case WS_EVT_ERROR:
+            break;
+    }
+}
+
+void CaptivePortal::broadcastPosition() {
+    if (!ws || ws->count() == 0) {
+        return; // No clients connected
+    }
+    
+    StaticJsonDocument<256> doc;
+    
+    TelescopePosition pos = _sensors->getPosition();
+    EquatorialCoords eq = _coords->getCurrentPosition();
+    
+    doc["az"] = String(pos.azimuth, 2);
+    doc["alt"] = String(pos.altitude, 2);
+    doc["ra"] = String(eq.ra, 4);
+    doc["dec"] = String(eq.dec, 4);
+    
+    String message;
+    serializeJson(doc, message);
+    ws->textAll(message);
+}
+
+void CaptivePortal::handleSetTime(AsyncWebServerRequest* request) {
+    if (request->hasParam("timestamp", true)) {
+        String timestampStr = request->getParam("timestamp", true)->value();
+        time_t timestamp = (time_t)timestampStr.toInt();
+        
+        // Set system time
+        struct timeval tv;
+        tv.tv_sec = timestamp;
+        tv.tv_usec = 0;
+        settimeofday(&tv, NULL);
+        
+        Serial.print("System time set to: ");
+        Serial.println(timestamp);
+        
+        // Get current time for verification
+        time_t now = time(nullptr);
+        char buffer[64];
+        struct tm* timeinfo = gmtime(&now);
+        strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S UTC", timeinfo);
+        
+        String response = "Time synchronized: ";
+        response += buffer;
+        
+        request->send(200, "text/plain", response);
+    } else {
+        request->send(400, "text/plain", "Missing timestamp parameter");
+    }
+}
+
+bool CaptivePortal::hasWebSocketClients() {
+    return ws && ws->count() > 0;
 }
