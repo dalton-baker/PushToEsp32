@@ -25,42 +25,10 @@ bool SensorManager::begin(uint8_t sda, uint8_t scl, uint32_t i2cFreq) {
     Serial.println("[SensorMgr] I2C initialized, waiting for sensors...");
     delay(500); // Give sensors more time to power up
     
-    // Initialize AS5600
-    Serial.println("[SensorMgr] Attempting AS5600 init...");
-    as5600.begin(); // Call begin even if it fails
-    
-    // Check if AS5600 is actually responding via I2C
-    delay(50);
-    as5600Initialized = as5600.isConnected();
-    if (!as5600Initialized) {
-        Serial.println("[SensorMgr] AS5600 NOT responding to I2C!");
-    } else {
-        Serial.println("[SensorMgr] AS5600 detected and responding!");
-        Serial.print("[SensorMgr] AS5600 raw angle: ");
-        Serial.println(as5600.getRawAngle());
-    }
-    
+    // Initialize sensors
+    as5600Initialized = initAS5600();
     delay(100);
-    
-    // Initialize MPU6050
-    Serial.println("[SensorMgr] Attempting MPU6050 init...");
-    mpu6050.begin(0x68, &Wire); // Call begin even if it fails
-    
-    // Check if MPU6050 is actually responding via I2C
-    delay(50);
-    Wire.beginTransmission(0x68);
-    mpu6050Initialized = (Wire.endTransmission() == 0);
-    
-    if (!mpu6050Initialized) {
-        Serial.println("[SensorMgr] MPU6050 NOT responding to I2C!");
-    } else {
-        Serial.println("[SensorMgr] MPU6050 detected and responding!");
-        
-        // Configure MPU6050
-        mpu6050.setAccelerometerRange(MPU6050_RANGE_2_G);
-        mpu6050.setGyroRange(MPU6050_RANGE_250_DEG);
-        mpu6050.setFilterBandwidth(MPU6050_BAND_21_HZ);
-    }
+    mpu6050Initialized = initMPU6050();
     
     Serial.print("[SensorMgr] Initialization complete - AS5600: ");
     Serial.print(as5600Initialized ? "OK" : "FAILED");
@@ -68,6 +36,72 @@ bool SensorManager::begin(uint8_t sda, uint8_t scl, uint32_t i2cFreq) {
     Serial.println(mpu6050Initialized ? "OK" : "FAILED");
     
     return as5600Initialized || mpu6050Initialized; // Return true if at least one works
+}
+
+bool SensorManager::initAS5600() {
+    Serial.println("[SensorMgr] Attempting AS5600 init...");
+    as5600.begin();
+    delay(50);
+    bool ok = as5600.isConnected();
+    if (!ok) {
+        Serial.println("[SensorMgr] AS5600 NOT responding to I2C!");
+    } else {
+        Serial.println("[SensorMgr] AS5600 detected and responding!");
+        Serial.print("[SensorMgr] AS5600 raw angle: ");
+        Serial.println(as5600.getRawAngle());
+    }
+    return ok;
+}
+
+bool SensorManager::initMPU6050() {
+    Serial.println("[SensorMgr] Attempting MPU6050 init...");
+    
+    // Check if responding before calling begin (which can mess up I2C bus)
+    Wire.beginTransmission(0x68);
+    if (Wire.endTransmission() != 0) {
+        Serial.println("[SensorMgr] MPU6050 NOT responding to I2C!");
+        return false;
+    }
+    
+    mpu6050.begin(0x68, &Wire);
+    delay(50);
+    
+    // Configure MPU6050
+    mpu6050.setAccelerometerRange(MPU6050_RANGE_2_G);
+    mpu6050.setGyroRange(MPU6050_RANGE_250_DEG);
+    mpu6050.setFilterBandwidth(MPU6050_BAND_21_HZ);
+    
+    Serial.println("[SensorMgr] MPU6050 detected and configured!");
+    return true;
+}
+
+void SensorManager::checkConnections() {
+    // Check AS5600
+    bool as5600Present = as5600.isConnected();
+    if (as5600Initialized && !as5600Present) {
+        as5600Initialized = false;
+        Serial.println("[SensorMgr] AS5600 disconnected");
+    } else if (!as5600Initialized && as5600Present) {
+        as5600Initialized = initAS5600();
+        if (as5600Initialized)
+            Serial.println("[SensorMgr] AS5600 reconnected!");
+    }
+
+    // Check MPU6050
+    Wire.beginTransmission(0x68);
+    bool mpu6050Present = (Wire.endTransmission() == 0);
+    if (mpu6050Initialized && !mpu6050Present) {
+        mpu6050Initialized = false;
+        // Reset rolling average so stale data doesn't linger
+        sampleCount = 0;
+        sampleIndex = 0;
+        currentAltitude = 0.0;
+        Serial.println("[SensorMgr] MPU6050 disconnected");
+    } else if (!mpu6050Initialized && mpu6050Present) {
+        mpu6050Initialized = initMPU6050();
+        if (mpu6050Initialized)
+            Serial.println("[SensorMgr] MPU6050 reconnected!");
+    }
 }
 
 void SensorManager::readSensors() {

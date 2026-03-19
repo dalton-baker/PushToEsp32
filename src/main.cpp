@@ -23,10 +23,11 @@
 #include "astronomy/Coordinates.h"
 #include "lx200/LX200Server.h"
 #include "web/CaptivePortal.h"
+#include "display/OLEDDisplay.h"
 
 // I2C Configuration
-#define I2C_SDA 5   // GPIO5 (A4)
-#define I2C_SCL 6   // GPIO6 (A5)
+#define I2C_SDA 3   // GPIO3 (D2)
+#define I2C_SCL 2   // GPIO2 (D1)
 #define I2C_FREQ 100000  // 100kHz (standard I2C speed)
 
 // Task timing
@@ -39,10 +40,13 @@ SensorManager sensors;
 Coordinates coordinates(&config, &sensors);
 LX200Server lx200(&coordinates, &config);
 CaptivePortal portal(&config, &sensors, &coordinates);
+OLEDDisplay oled(&sensors, &coordinates);
 
 // Task handles
+TaskHandle_t displayTaskHandle = NULL;
 TaskHandle_t sensorTaskHandle = NULL;
 TaskHandle_t networkTaskHandle = NULL;
+
 
 // Shared data protection
 SemaphoreHandle_t positionMutex;
@@ -58,6 +62,7 @@ SemaphoreHandle_t positionMutex;
 void sensorTask(void* parameter) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(SENSOR_READ_RATE_MS);
+    unsigned long lastCheck = 0;
     
     Serial.println("[Sensor Task] Started on core " + String(xPortGetCoreID()));
     
@@ -65,10 +70,42 @@ void sensorTask(void* parameter) {
         // Read sensors
         if (xSemaphoreTake(positionMutex, portMAX_DELAY)) {
             sensors.readSensors();
+
+            // Check for sensor connect/disconnect every 2 seconds
+            if (millis() - lastCheck > 2000) {
+                lastCheck = millis();
+                sensors.checkConnections();
+            }
+
             xSemaphoreGive(positionMutex);
         }
         
         // Wait for next cycle
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+    }
+}
+
+/**
+ * Display Task - Core 1
+ * Updates the OLED at 10Hz, checks for reconnection every 2s
+ */
+void displayTask(void* parameter) {
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(100); // 10Hz
+    unsigned long lastCheck = 0;
+
+    Serial.println("[Display Task] Started on core " + String(xPortGetCoreID()));
+
+    while (true) {
+        if (xSemaphoreTake(positionMutex, pdMS_TO_TICKS(5))) {
+            // Check for OLED connect/disconnect every 2 seconds
+            if (millis() - lastCheck > 2000) {
+                lastCheck = millis();
+                oled.checkConnection();
+            }
+            oled.update();
+            xSemaphoreGive(positionMutex);
+        }
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
@@ -112,7 +149,12 @@ void networkTask(void* parameter) {
 
 void setup() {
     Serial.begin(115200);
-    delay(1000);
+    // Wait for USB CDC serial connection (up to 3 seconds)
+    unsigned long serialWaitStart = millis();
+    while (!Serial && millis() - serialWaitStart < 3000) {
+        delay(10);
+    }
+    delay(200);
     
     Serial.println("\n\n========================================");
     Serial.println("   PushTo ESP32 - Telescope System");
@@ -144,6 +186,10 @@ void setup() {
     Serial.println("[Setup] Connect to WiFi: PushTo-Setup");
     Serial.println("[Setup] Portal IP: " + portal.getAPIP());
     
+    // Initialize OLED display (optional hardware)
+    Serial.println("[Setup] Checking for OLED display...");
+    oled.begin();
+
     // Initialize LX200 server
     Serial.println("[Setup] Starting LX200 server...");
     lx200.begin();
@@ -178,10 +224,23 @@ void setup() {
         &networkTaskHandle,   // Task handle
         1                     // Core 1
     );
-    
+
+    // Create display task on core 1 (always runs, handles connect/disconnect)
+    xTaskCreatePinnedToCore(
+        displayTask,          // Task function
+        "DisplayTask",        // Task name
+        4096,                 // Stack size
+        NULL,                 // Parameters
+        1,                    // Priority (normal)
+        &displayTaskHandle,   // Task handle
+        1                     // Core 1
+    );
+
     Serial.println("\n[Setup] System initialized!");
     Serial.println("[Setup] Sensor task running on core 0 @ 100Hz");
     Serial.println("[Setup] Network task running on core 1 @ 10Hz");
+    Serial.println("[Setup] Display task running on core 1 @ 10Hz");
+    Serial.println("[Setup] Hot-plug: sensors & display checked every 2s");
     Serial.println("========================================\n");
 }
 
@@ -192,9 +251,19 @@ void loop() {
     
     // Optional: Print status every 10 seconds
     static unsigned long lastStatus = 0;
+    static bool firstStatus = true;
     if (millis() - lastStatus > 10000) {
         lastStatus = millis();
         
+        // On first status tick, reprint setup diagnostics (USB CDC misses early logs)
+        if (firstStatus) {
+            firstStatus = false;
+            Serial.println("\n=== Startup Diagnostics (reprinted) ===");
+            Serial.println(sensors.getDiagnostics());
+            Serial.print(oled.getDiagnostics());
+            Serial.println("========================================");
+        }
+
         TelescopePosition pos = sensors.getPosition();
         EquatorialCoords eq = coordinates.getCurrentPosition();
         
@@ -202,6 +271,10 @@ void loop() {
         Serial.printf("Position: Az=%.2f° Alt=%.2f°\n", pos.azimuth, pos.altitude);
         Serial.printf("RA/Dec: %.4fh %.4f°\n", eq.ra, eq.dec);
         Serial.printf("LX200 clients: %d\n", lx200.getClientCount());
+        Serial.printf("AS5600: %s  MPU6050: %s  OLED: %s\n",
+            sensors.isAS5600Connected() ? "OK" : "---",
+            sensors.isMPU6050Connected() ? "OK" : "---",
+            oled.isConnected() ? "OK" : "---");
         Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
         Serial.println("--------------------\n");
     }

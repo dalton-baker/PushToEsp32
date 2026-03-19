@@ -37,6 +37,9 @@ public:
     bool isMPU6050Connected();
     bool isMagnetOK();
     
+    // Hot-plug: check and reinitialize disconnected/reconnected devices
+    void checkConnections();
+    
     String getDiagnostics();
     
 private:
@@ -59,6 +62,9 @@ private:
     // Helper functions
     float calculateAltitudeFromAccel(float ax, float ay, float az);
     float getAveragedAltitude();
+    
+    bool initAS5600();
+    bool initMPU6050();
 };
 
 #endif // SENSOR_MANAGER_H
