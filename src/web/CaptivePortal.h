@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <DNSServer.h>
+#include <ESPmDNS.h>
 #include <ESPAsyncWebServer.h>
 #include "../config/Config.h"
 #include "../sensors/SensorManager.h"
@@ -15,9 +15,12 @@ public:
     
     void begin();
     void handle();
+    void shutdown();
     
-    bool isAPMode();
+    bool isRunning();
     String getAPIP();
+    String getSSID();
+    String getPassword();
     
     // WebSocket methods
     void broadcastPosition();
@@ -30,9 +33,9 @@ private:
     
     AsyncWebServer* server;
     AsyncWebSocket* ws;
-    DNSServer* dnsServer;
     
-    bool apMode;
+    bool _running;
+    unsigned long _shutdownRequestedAt;
     String apIP;
     
     // Web page setup
@@ -50,6 +53,8 @@ private:
     void handleGetPosition(AsyncWebServerRequest* request);
     void handleGetDiagnostics(AsyncWebServerRequest* request);
     void handleSetTime(AsyncWebServerRequest* request);
+    void handleFinalize(AsyncWebServerRequest* request);
+    void handleGetAlignmentStars(AsyncWebServerRequest* request);
 };
 
 #endif // CAPTIVE_PORTAL_H

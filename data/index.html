@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>PushTo ESP32 Setup</title>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: Arial; margin: 20px; background: #1a1a1a; color: #fff; }
@@ -11,6 +12,8 @@
                   display: inline-block; margin: 10px 0; border-radius: 5px; width: 100%;
                   text-align: center; box-sizing: border-box; }
         .button:hover { background: #45a049; }
+        .button.finalize { background: #FF9800; }
+        .button.finalize:hover { background: #F57C00; }
         .status { background: #333; padding: 15px; border-radius: 5px; margin: 10px 0; }
         .coordinates { background: #2a2a2a; padding: 20px; border-radius: 5px; margin: 20px 0; 
                       border: 2px solid #4CAF50; }
@@ -31,19 +34,19 @@
             <h2 style="margin-top: 0; color: #4CAF50;">Current Position</h2>
             <div class="coord-row">
                 <span class="coord-label">Azimuth:</span>
-                <span class="coord-value" id="az">---.--°</span>
+                <span class="coord-value" id="az">---</span>
             </div>
             <div class="coord-row">
                 <span class="coord-label">Altitude:</span>
-                <span class="coord-value" id="alt">---.--°</span>
+                <span class="coord-value" id="alt">---</span>
             </div>
             <div class="coord-row">
                 <span class="coord-label">RA:</span>
-                <span class="coord-value" id="ra">--.----h</span>
+                <span class="coord-value" id="ra">---</span>
             </div>
             <div class="coord-row">
                 <span class="coord-label">Dec:</span>
-                <span class="coord-value" id="dec">---.----°</span>
+                <span class="coord-value" id="dec">---</span>
             </div>
             <div class="ws-status" id="wsStatus">Connecting...</div>
         </div>
@@ -52,6 +55,7 @@
         <a href="/config.html" class="button">Configure Site</a>
         <a href="/align.html" class="button">Alignment</a>
         <a href="/diagnostics.html" class="button">Diagnostics</a>
+        <a href="#" class="button finalize" onclick="finalize(); return false;">Finalize Setup (Turn Off WiFi)</a>
     </div>
     <script>
         let ws = null;
@@ -88,10 +92,10 @@
             ws.onmessage = function(event) {
                 try {
                     const data = JSON.parse(event.data);
-                    document.getElementById('az').textContent = parseFloat(data.az).toFixed(2) + '°';
-                    document.getElementById('alt').textContent = parseFloat(data.alt).toFixed(2) + '°';
+                    document.getElementById('az').textContent = parseFloat(data.az).toFixed(2) + '\u00B0';
+                    document.getElementById('alt').textContent = parseFloat(data.alt).toFixed(2) + '\u00B0';
                     document.getElementById('ra').textContent = parseFloat(data.ra).toFixed(4) + 'h';
-                    document.getElementById('dec').textContent = parseFloat(data.dec).toFixed(4) + '°';
+                    document.getElementById('dec').textContent = parseFloat(data.dec).toFixed(4) + '\u00B0';
                 } catch (e) {
                     console.error('Error parsing WebSocket data:', e);
                 }
@@ -132,10 +136,11 @@
                 .then(r => r.json())
                 .then(data => {
                     document.getElementById('status').innerHTML = 
-                        'Sensors: ' + (data.sensorsOK ? 'OK' : 'ERROR') + '<br>' +
+                        'Azimuth sensor: ' + (data.as5600 ? 'OK' : 'DISCONNECTED') + '<br>' +
+                        'Altitude sensor: ' + (data.mpu6050 ? 'OK' : 'DISCONNECTED') + '<br>' +
                         'Site configured: ' + (data.siteValid ? 'YES' : 'NO') + '<br>' +
                         'Aligned: ' + (data.aligned ? 'YES' : 'NO') + '<br>' +
-                        'IP: ' + data.ip;
+                        'WiFi clients: ' + data.clients;
                 })
                 .catch(err => {
                     document.getElementById('status').innerHTML = 'Error loading status';
@@ -167,6 +172,20 @@
                 clearInterval(statusUpdateTimer);
             }
         });
+        
+        function finalize() {
+            if (!confirm('This will shut down WiFi to conserve power. You will lose connection to this page. Continue?')) {
+                return;
+            }
+            fetch('/api/finalize', { method: 'POST' })
+                .then(r => r.text())
+                .then(msg => {
+                    document.getElementById('status').innerHTML = msg + '<br>WiFi shutting down...';
+                })
+                .catch(err => {
+                    document.getElementById('status').innerHTML = 'Error: ' + err;
+                });
+        }
     </script>
 </body>
 </html>

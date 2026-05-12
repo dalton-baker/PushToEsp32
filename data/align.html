@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>2-Star Alignment</title>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: Arial; margin: 20px; background: #1a1a1a; color: #fff; }
@@ -20,13 +21,19 @@
         a { color: #4CAF50; text-decoration: none; }
         a:hover { text-decoration: underline; }
         .star-picker { background: #1f3d5d; padding: 15px; border-radius: 5px; margin: 10px 0;
-                      border-left: 4px solid #2196F3; max-height: 300px; overflow-y: auto; }
+                      border-left: 4px solid #2196F3; max-height: 50vh; overflow-y: auto;
+                      -webkit-overflow-scrolling: touch; }
         .star-picker.hidden { display: none; }
-        .star-item { background: #2a2a2a; padding: 10px; margin: 5px 0; border-radius: 3px; cursor: pointer; }
-        .star-item:hover { background: #3a3a3a; }
+        .star-item { background: #2a2a2a; padding: 12px; margin: 5px 0; border-radius: 3px; 
+                    cursor: pointer; touch-action: manipulation; }
+        .star-item:hover, .star-item:active { background: #3a3a3a; }
         .star-name { font-weight: bold; color: #64B5F6; }
-        .star-info { font-size: 0.9em; color: #aaa; margin-top: 3px; }
-        #starSearch { margin-bottom: 10px; }
+        .star-info { font-size: 0.85em; color: #aaa; margin-top: 3px; }
+        #starSearch1, #starSearch2 { margin-bottom: 10px; font-size: 16px; }
+        .star-status { padding: 10px; border-radius: 5px; margin: 5px 0; font-size: 0.9em; }
+        .star-status.configured { background: #1f5d2f; border-left: 4px solid #4CAF50; color: #ccffcc; }
+        .star-status.not-configured { background: #3d3d1f; border-left: 4px solid #FF9800; color: #fff3cd; }
+        .star-section { margin-bottom: 25px; }
     </style>
 </head>
 <body>
@@ -34,31 +41,37 @@
         <h1>2-Star Alignment</h1>
         <div class="position" id="position">Loading position...</div>
         
-        <h2>Star 1</h2>
-        <button type="button" class="picker" onclick="showStarPicker(1)">⭐ Pick from Star List</button>
-        <div id="starPicker1" class="star-picker hidden">
-            <input type="text" id="starSearch1" placeholder="Search stars..." onkeyup="filterStars(1)">
-            <div id="starList1"></div>
+        <div class="star-section">
+            <h2>Star 1</h2>
+            <div class="star-status not-configured" id="star1status">Not configured</div>
+            <button type="button" class="picker" onclick="showStarPicker(1)">Pick from Star List</button>
+            <div id="starPicker1" class="star-picker hidden">
+                <input type="text" id="starSearch1" placeholder="Search stars..." oninput="filterStars(1)">
+                <div id="starList1"></div>
+            </div>
+            <input type="text" id="star1ra" placeholder="RA (HH:MM:SS)" readonly>
+            <input type="text" id="star1dec" placeholder="Dec (+/-DD:MM:SS)" readonly>
+            <input type="text" id="star1name" placeholder="Star name" readonly style="background: #2a2a2a;">
+            <button onclick="setStar(1)">Set Star 1</button>
         </div>
-        <input type="text" id="star1ra" placeholder="RA (HH:MM:SS)" readonly>
-        <input type="text" id="star1dec" placeholder="Dec (+/-DD:MM:SS)" readonly>
-        <input type="text" id="star1name" placeholder="Star name" readonly style="background: #2a2a2a;">
-        <button onclick="setStar(1)">Set Star 1</button>
         
-        <h2>Star 2</h2>
-        <button type="button" class="picker" onclick="showStarPicker(2)">⭐ Pick from Star List</button>
-        <div id="starPicker2" class="star-picker hidden">
-            <input type="text" id="starSearch2" placeholder="Search stars..." onkeyup="filterStars(2)">
-            <div id="starList2"></div>
+        <div class="star-section">
+            <h2>Star 2</h2>
+            <div class="star-status not-configured" id="star2status">Not configured</div>
+            <button type="button" class="picker" onclick="showStarPicker(2)">Pick from Star List</button>
+            <div id="starPicker2" class="star-picker hidden">
+                <input type="text" id="starSearch2" placeholder="Search stars..." oninput="filterStars(2)">
+                <div id="starList2"></div>
+            </div>
+            <input type="text" id="star2ra" placeholder="RA (HH:MM:SS)" readonly>
+            <input type="text" id="star2dec" placeholder="Dec (+/-DD:MM:SS)" readonly>
+            <input type="text" id="star2name" placeholder="Star name" readonly style="background: #2a2a2a;">
+            <button onclick="setStar(2)">Set Star 2</button>
         </div>
-        <input type="text" id="star2ra" placeholder="RA (HH:MM:SS)" readonly>
-        <input type="text" id="star2dec" placeholder="Dec (+/-DD:MM:SS)" readonly>
-        <input type="text" id="star2name" placeholder="Star name" readonly style="background: #2a2a2a;">
-        <button onclick="setStar(2)">Set Star 2</button>
         
         <button onclick="clearAlignment()" class="clear">Clear Alignment</button>
         <p id="message"></p>
-        <p><a href="/">← Back to Home</a></p>
+        <p><a href="/">&larr; Back to Home</a></p>
     </div>
     <script>
         let starsData = [];
@@ -73,6 +86,28 @@
             .catch(err => {
                 console.error('Could not load stars:', err);
             });
+        
+        // Load current alignment star status
+        function loadAlignmentStatus() {
+            fetch('/api/align/stars')
+                .then(r => r.json())
+                .then(data => {
+                    for (let i = 1; i <= 2; i++) {
+                        const star = data['star' + i];
+                        const statusEl = document.getElementById('star' + i + 'status');
+                        if (star && star.configured) {
+                            statusEl.className = 'star-status configured';
+                            const label = star.name ? star.name : ('RA: ' + star.ra.toFixed(4) + 'h, Dec: ' + star.dec.toFixed(4));
+                            statusEl.textContent = 'Configured: ' + label;
+                        } else {
+                            statusEl.className = 'star-status not-configured';
+                            statusEl.textContent = 'Not configured';
+                        }
+                    }
+                })
+                .catch(err => console.log('Could not load alignment status'));
+        }
+        loadAlignmentStatus();
         
         function raDecimalToHMS(raHours) {
             const hours = Math.floor(raHours);
@@ -113,7 +148,7 @@
                         '<div class="star-name">' + star.proper + '</div>' +
                         '<div class="star-info">' + 
                         (star.bf || '') + ' | ' + star.con + ' | Mag ' + star.mag.toFixed(2) + 
-                        '<br>RA: ' + ra + ' | Dec: ' + dec +
+                        ' | RA: ' + ra + ' | Dec: ' + dec +
                         '</div>';
                     
                     item.onclick = function() {
@@ -173,10 +208,8 @@
                 try {
                     const data = JSON.parse(event.data);
                     document.getElementById('position').innerHTML = 
-                        'Azimuth: ' + parseFloat(data.az).toFixed(2) + '°<br>' +
-                        'Altitude: ' + parseFloat(data.alt).toFixed(2) + '°<br>' +
-                        'RA: ' + parseFloat(data.ra).toFixed(4) + 'h<br>' +
-                        'Dec: ' + parseFloat(data.dec).toFixed(4) + '°';
+                        'Azimuth: ' + parseFloat(data.az).toFixed(2) + '\u00B0' +
+                        ' &nbsp; Altitude: ' + parseFloat(data.alt).toFixed(2) + '\u00B0';
                 } catch (e) {
                     console.error('Error parsing WebSocket data:', e);
                 }
@@ -195,8 +228,15 @@
         function setStar(num) {
             var ra = document.getElementById('star' + num + 'ra').value;
             var dec = document.getElementById('star' + num + 'dec').value;
+            var name = document.getElementById('star' + num + 'name').value;
             
-            var params = 'star=' + num + '&ra=' + encodeURIComponent(ra) + '&dec=' + encodeURIComponent(dec);
+            if (!ra || !dec) {
+                document.getElementById('message').innerHTML = 'Please select a star first';
+                document.getElementById('message').style.color = '#FF9800';
+                return;
+            }
+            
+            var params = 'star=' + num + '&ra=' + encodeURIComponent(ra) + '&dec=' + encodeURIComponent(dec) + '&name=' + encodeURIComponent(name);
             
             fetch('/api/align', { 
                 method: 'POST', 
@@ -205,24 +245,27 @@
             })
             .then(r => r.text())
             .then(msg => {
-                document.getElementById('message').innerHTML = '✅ ' + msg;
+                document.getElementById('message').innerHTML = msg;
                 document.getElementById('message').style.color = '#4CAF50';
+                loadAlignmentStatus(); // Refresh status
             })
             .catch(err => {
-                document.getElementById('message').innerHTML = '❌ Error setting star';
+                document.getElementById('message').innerHTML = 'Error setting star';
                 document.getElementById('message').style.color = '#f44336';
             });
         }
         
         function clearAlignment() {
+            if (!confirm('Clear both alignment stars?')) return;
             fetch('/api/align?clear=1', { method: 'POST' })
                 .then(r => r.text())
                 .then(msg => {
-                    document.getElementById('message').innerHTML = '✅ ' + msg;
+                    document.getElementById('message').innerHTML = msg;
                     document.getElementById('message').style.color = '#4CAF50';
+                    loadAlignmentStatus(); // Refresh status
                 })
                 .catch(err => {
-                    document.getElementById('message').innerHTML = '❌ Error clearing alignment';
+                    document.getElementById('message').innerHTML = 'Error clearing alignment';
                     document.getElementById('message').style.color = '#f44336';
                 });
         }

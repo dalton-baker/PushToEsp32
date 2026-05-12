@@ -11,9 +11,11 @@
  * - FreeRTOS dual-core: sensor reading (core 0), WiFi/LX200 (core 1)
  * - 100Hz sensor polling, 10Hz position updates
  * - Rolling average (16 samples) for altitude
- * - Captive portal for configuration
+ * - WiFi AP with mDNS (setup.local) for configuration
  * - LX200 protocol over TCP
  * - 2-star alignment
+ * - Setup mode: WiFi on, OLED shows WiFi info
+ * - Observe mode: WiFi off, OLED shows RA/Dec
  */
 
 #include <Arduino.h>
@@ -114,6 +116,7 @@ void displayTask(void* parameter) {
  * Network Task - Core 1
  * Handles WiFi, web server, and LX200 protocol
  * Updates at lower frequency (10Hz)
+ * Monitors portal state and switches display mode when finalized
  */
 void networkTask(void* parameter) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -122,14 +125,20 @@ void networkTask(void* parameter) {
     Serial.println("[Network Task] Started on core " + String(xPortGetCoreID()));
     
     while (true) {
-        // Handle captive portal
+        // Handle web portal (no-op if shut down)
         portal.handle();
         
         // Handle LX200 clients
         lx200.handle();
         
+        // Check if portal was shut down (finalize) - switch to observe mode
+        if (!portal.isRunning() && oled.getMode() == DISPLAY_SETUP) {
+            oled.setMode(DISPLAY_OBSERVE);
+            Serial.println("[Network] Portal finalized - switching to observe mode");
+        }
+        
         // Broadcast position data to WebSocket clients (if any)
-        if (portal.hasWebSocketClients()) {
+        if (portal.isRunning() && portal.hasWebSocketClients()) {
             portal.broadcastPosition();
         }
         
@@ -183,12 +192,16 @@ void setup() {
     // Initialize WiFi and web portal
     Serial.println("[Setup] Starting WiFi access point...");
     portal.begin();
-    Serial.println("[Setup] Connect to WiFi: PushTo-Setup");
+    Serial.println("[Setup] WiFi SSID: " + portal.getSSID());
+    Serial.println("[Setup] WiFi Pass: " + portal.getPassword());
     Serial.println("[Setup] Portal IP: " + portal.getAPIP());
+    Serial.println("[Setup] mDNS: http://setup.local");
     
     // Initialize OLED display (optional hardware)
     Serial.println("[Setup] Checking for OLED display...");
     oled.begin();
+    oled.setMode(DISPLAY_SETUP);
+    oled.setWiFiInfo(portal.getSSID(), portal.getPassword(), "setup.local");
 
     // Initialize LX200 server
     Serial.println("[Setup] Starting LX200 server...");

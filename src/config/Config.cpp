@@ -27,6 +27,7 @@ void Config::save() {
         prefs.putDouble((prefix + "dec").c_str(), stars[i].dec);
         prefs.putFloat((prefix + "az").c_str(), stars[i].az);
         prefs.putFloat((prefix + "alt").c_str(), stars[i].alt);
+        prefs.putString((prefix + "name").c_str(), starNames[i]);
     }
     
     // Save WiFi and device name
@@ -49,6 +50,7 @@ void Config::load() {
         stars[i].dec = prefs.getDouble((prefix + "dec").c_str(), 0.0);
         stars[i].az = prefs.getFloat((prefix + "az").c_str(), 0.0);
         stars[i].alt = prefs.getFloat((prefix + "alt").c_str(), 0.0);
+        starNames[i] = prefs.getString((prefix + "name").c_str(), "");
     }
     
     // Load WiFi and device name
@@ -75,12 +77,13 @@ SiteConfig Config::getSite() {
     return site;
 }
 
-void Config::setAlignmentStar(int starNum, double ra, double dec, float az, float alt) {
+void Config::setAlignmentStar(int starNum, double ra, double dec, float az, float alt, const String& name) {
     if (starNum >= 0 && starNum < 2) {
         stars[starNum].ra = ra;
         stars[starNum].dec = dec;
         stars[starNum].az = az;
         stars[starNum].alt = alt;
+        starNames[starNum] = name;
         
         // Mark as aligned if both stars are set
         if (stars[0].ra != 0.0 && stars[1].ra != 0.0) {
@@ -97,6 +100,13 @@ AlignmentStar Config::getAlignmentStar(int starNum) {
     return AlignmentStar{0, 0, 0, 0};
 }
 
+String Config::getAlignmentStarName(int starNum) {
+    if (starNum >= 0 && starNum < 2) {
+        return starNames[starNum];
+    }
+    return "";
+}
+
 bool Config::isAligned() {
     return aligned;
 }
@@ -105,6 +115,7 @@ void Config::clearAlignment() {
     aligned = false;
     for (int i = 0; i < 2; i++) {
         stars[i] = {0, 0, 0, 0};
+        starNames[i] = "";
     }
     save();
 }

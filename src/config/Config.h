@@ -31,8 +31,9 @@ public:
     SiteConfig getSite();
     
     // Alignment stars
-    void setAlignmentStar(int starNum, double ra, double dec, float az, float alt);
+    void setAlignmentStar(int starNum, double ra, double dec, float az, float alt, const String& name = "");
     AlignmentStar getAlignmentStar(int starNum);
+    String getAlignmentStarName(int starNum);
     bool isAligned();
     void clearAlignment();
     
@@ -49,6 +50,7 @@ private:
     Preferences prefs;
     SiteConfig site;
     AlignmentStar stars[2];
+    String starNames[2];
     String deviceName;
     String wifiSSID;
     String wifiPassword;

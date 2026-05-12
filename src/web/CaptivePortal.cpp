@@ -5,7 +5,8 @@
 
 #define AP_SSID "PushTo-Setup"
 #define AP_PASSWORD "telescope"
-#define DNS_PORT 53
+#define AP_CHANNEL 6
+#define AP_MAX_CONNECTIONS 4
 
 CaptivePortal::CaptivePortal(Config* config, SensorManager* sensors, Coordinates* coords) {
     _config = config;
@@ -13,29 +14,51 @@ CaptivePortal::CaptivePortal(Config* config, SensorManager* sensors, Coordinates
     _coords = coords;
     server = nullptr;
     ws = nullptr;
-    dnsServer = nullptr;
-    apMode = true;
+    _running = false;
+    _shutdownRequestedAt = 0;
 }
 
 void CaptivePortal::begin() {
     // Mount LittleFS
     if (!LittleFS.begin(true)) {
-        Serial.println("LittleFS mount failed! Continuing without filesystem...");
+        Serial.println("[WiFi] LittleFS mount failed! Continuing without filesystem...");
     } else {
-        Serial.println("LittleFS mounted successfully");
+        Serial.println("[WiFi] LittleFS mounted successfully");
     }
     
-    // Start in AP mode
+    // Configure and start AP with fixed IP 192.168.0.1
+    Serial.println("[WiFi] Configuring access point...");
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(AP_SSID, AP_PASSWORD);
+    delay(100);
+    
+    IPAddress local_IP(192, 168, 0, 1);
+    IPAddress gateway(192, 168, 0, 1);
+    IPAddress subnet(255, 255, 255, 0);
+    
+    if (!WiFi.softAPConfig(local_IP, gateway, subnet)) {
+        Serial.println("[WiFi] ERROR: AP config failed!");
+    }
+    
+    if (!WiFi.softAP(AP_SSID, AP_PASSWORD, AP_CHANNEL, false, AP_MAX_CONNECTIONS)) {
+        Serial.println("[WiFi] ERROR: softAP start failed!");
+        return;
+    }
+    
+    delay(200); // Allow AP to stabilize
     
     apIP = WiFi.softAPIP().toString();
-    Serial.print("AP Mode - IP: ");
-    Serial.println(apIP);
+    Serial.println("[WiFi] AP started - SSID: " + String(AP_SSID));
+    Serial.println("[WiFi] AP IP: " + apIP);
+    Serial.println("[WiFi] AP MAC: " + WiFi.softAPmacAddress());
+    Serial.println("[WiFi] Channel: " + String(AP_CHANNEL));
     
-    // Start DNS server for captive portal
-    dnsServer = new DNSServer();
-    dnsServer->start(DNS_PORT, "*", WiFi.softAPIP());
+    // Start mDNS for setup.local
+    if (MDNS.begin("setup")) {
+        MDNS.addService("http", "tcp", 80);
+        Serial.println("[WiFi] mDNS started: setup.local");
+    } else {
+        Serial.println("[WiFi] WARNING: mDNS failed to start");
+    }
     
     // Start web server
     server = new AsyncWebServer(80);
@@ -51,24 +74,60 @@ void CaptivePortal::begin() {
     setupRoutes();
     server->begin();
     
-    Serial.println("Captive portal started");
+    _running = true;
+    Serial.println("[WiFi] Web server started on port 80");
+    Serial.println("[WiFi] Access at: http://192.168.0.1 or http://setup.local");
 }
 
 void CaptivePortal::handle() {
-    if (dnsServer) {
-        dnsServer->processNextRequest();
+    if (!_running) return;
+    
+    // Deferred shutdown: wait for response to flush before tearing down WiFi
+    if (_shutdownRequestedAt > 0 && millis() - _shutdownRequestedAt > 3000) {
+        _shutdownRequestedAt = 0;
+        shutdown();
+        return;
     }
+    
     if (ws) {
         ws->cleanupClients();
     }
 }
 
-bool CaptivePortal::isAPMode() {
-    return apMode;
+void CaptivePortal::shutdown() {
+    if (!_running) return;
+    
+    Serial.println("[WiFi] Shutting down web server...");
+    
+    if (ws) {
+        ws->closeAll();
+    }
+    if (server) {
+        server->end();
+    }
+    
+    MDNS.end();
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_OFF);
+    
+    _running = false;
+    Serial.println("[WiFi] Server shut down - WiFi off to conserve power");
+}
+
+bool CaptivePortal::isRunning() {
+    return _running;
 }
 
 String CaptivePortal::getAPIP() {
     return apIP;
+}
+
+String CaptivePortal::getSSID() {
+    return AP_SSID;
+}
+
+String CaptivePortal::getPassword() {
+    return AP_PASSWORD;
 }
 
 void CaptivePortal::setupRoutes() {
@@ -113,6 +172,11 @@ void CaptivePortal::setupRoutes() {
         handleAlignmentSubmit(request);
     });
     
+    // API: Get alignment star status
+    server->on("/api/align/stars", HTTP_GET, [this](AsyncWebServerRequest* request) {
+        handleGetAlignmentStars(request);
+    });
+    
     // API: Get status
     server->on("/api/status", HTTP_GET, [this](AsyncWebServerRequest* request) {
         handleGetStatus(request);
@@ -133,7 +197,12 @@ void CaptivePortal::setupRoutes() {
         handleSetTime(request);
     });
     
-    // Captive portal redirect - for old /config etc URLs
+    // API: Finalize setup (shut down WiFi)
+    server->on("/api/finalize", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        handleFinalize(request);
+    });
+    
+    // Redirect shorthand URLs
     server->on("/config", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->redirect("/config.html");
     });
@@ -146,9 +215,9 @@ void CaptivePortal::setupRoutes() {
         request->redirect("/diagnostics.html");
     });
     
-    // Captive portal redirect for everything else
+    // 404 for unknown routes
     server->onNotFound([](AsyncWebServerRequest* request) {
-        request->redirect("/");
+        request->send(404, "text/plain", "Not found");
     });
 }
 
@@ -189,13 +258,17 @@ void CaptivePortal::handleAlignmentSubmit(AsyncWebServerRequest* request) {
         int starNum = request->getParam("star", true)->value().toInt() - 1;
         String raStr = request->getParam("ra", true)->value();
         String decStr = request->getParam("dec", true)->value();
+        String starName = "";
+        if (request->hasParam("name", true)) {
+            starName = request->getParam("name", true)->value();
+        }
         
         // Parse RA and Dec (simplified parsing)
         double ra = raStr.toDouble(); // TODO: Proper HH:MM:SS parsing
         double dec = decStr.toDouble(); // TODO: Proper DD:MM:SS parsing
         
         TelescopePosition pos = _sensors->getPosition();
-        _config->setAlignmentStar(starNum, ra, dec, pos.azimuth, pos.altitude);
+        _config->setAlignmentStar(starNum, ra, dec, pos.azimuth, pos.altitude, starName);
         _coords->performAlignment();
         
         request->send(200, "text/plain", "Star " + String(starNum + 1) + " set!");
@@ -205,12 +278,15 @@ void CaptivePortal::handleAlignmentSubmit(AsyncWebServerRequest* request) {
 }
 
 void CaptivePortal::handleGetStatus(AsyncWebServerRequest* request) {
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<384> doc;
     
     doc["sensorsOK"] = _sensors->isAS5600Connected() && _sensors->isMPU6050Connected();
+    doc["as5600"] = _sensors->isAS5600Connected();
+    doc["mpu6050"] = _sensors->isMPU6050Connected();
     doc["siteValid"] = _config->getSite().valid;
     doc["aligned"] = _coords->isAligned();
     doc["ip"] = apIP;
+    doc["clients"] = WiFi.softAPgetStationNum();
     
     String response;
     serializeJson(doc, response);
@@ -235,6 +311,13 @@ void CaptivePortal::handleGetPosition(AsyncWebServerRequest* request) {
 
 void CaptivePortal::handleGetDiagnostics(AsyncWebServerRequest* request) {
     String diag = _sensors->getDiagnostics();
+    diag += "\nWiFi Diagnostics:\n";
+    diag += "SSID: " + String(AP_SSID) + "\n";
+    diag += "IP: " + apIP + "\n";
+    diag += "MAC: " + WiFi.softAPmacAddress() + "\n";
+    diag += "Channel: " + String(AP_CHANNEL) + "\n";
+    diag += "Connected clients: " + String(WiFi.softAPgetStationNum()) + "\n";
+    diag += "Free heap: " + String(ESP.getFreeHeap()) + " bytes\n";
     request->send(200, "text/plain", diag);
 }
 
@@ -291,7 +374,7 @@ void CaptivePortal::handleSetTime(AsyncWebServerRequest* request) {
         tv.tv_usec = 0;
         settimeofday(&tv, NULL);
         
-        Serial.print("System time set to: ");
+        Serial.print("[WiFi] System time set to: ");
         Serial.println(timestamp);
         
         // Get current time for verification
@@ -307,6 +390,33 @@ void CaptivePortal::handleSetTime(AsyncWebServerRequest* request) {
     } else {
         request->send(400, "text/plain", "Missing timestamp parameter");
     }
+}
+
+void CaptivePortal::handleFinalize(AsyncWebServerRequest* request) {
+    request->send(200, "text/plain", "Finalizing setup - WiFi will shut down shortly");
+    Serial.println("[WiFi] Finalize requested - scheduling shutdown");
+    _shutdownRequestedAt = millis();
+}
+
+void CaptivePortal::handleGetAlignmentStars(AsyncWebServerRequest* request) {
+    StaticJsonDocument<512> doc;
+    
+    for (int i = 0; i < 2; i++) {
+        AlignmentStar star = _config->getAlignmentStar(i);
+        JsonObject starObj = doc.createNestedObject("star" + String(i + 1));
+        starObj["ra"] = star.ra;
+        starObj["dec"] = star.dec;
+        starObj["az"] = star.az;
+        starObj["alt"] = star.alt;
+        starObj["name"] = _config->getAlignmentStarName(i);
+        starObj["configured"] = (star.ra != 0.0 || star.dec != 0.0);
+    }
+    
+    doc["aligned"] = _config->isAligned();
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
 }
 
 bool CaptivePortal::hasWebSocketClients() {

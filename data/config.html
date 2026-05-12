@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>Site Configuration</title>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: Arial; margin: 20px; background: #1a1a1a; color: #fff; }
@@ -38,21 +39,21 @@
         <h1>Site Configuration</h1>
         
         <button type="button" class="helper" onclick="toggleHelper()">
-            📍 Get Location from Phone GPS
+            Get Location from Phone GPS
         </button>
         
         <div class="helper-box collapse" id="helperBox">
             <h3>Easy Methods to Get Your Coordinates:</h3>
             
-            <strong>📱 iPhone - Compass App (Easiest!):</strong>
+            <strong>iPhone - Compass App (Easiest!):</strong>
             <ol style="margin-bottom: 15px;">
                 <li>Open the <strong>Compass</strong> app</li>
-                <li>Your coordinates are shown at the bottom (e.g., "37.7749° N, 122.4194° W")</li>
+                <li>Your coordinates are shown at the bottom (e.g., "37.7749 N, 122.4194 W")</li>
                 <li><strong>Tap and hold</strong> on the coordinates to copy</li>
                 <li>Paste below</li>
             </ol>
             
-            <strong>🤖 Android - Drop a Pin:</strong>
+            <strong>Android - Drop a Pin:</strong>
             <ol style="margin-bottom: 15px;">
                 <li>Open <strong>Google Maps</strong></li>
                 <li><strong>Long-press</strong> anywhere on the map to drop a pin</li>
@@ -60,10 +61,10 @@
                 <li><strong>Tap the coordinates</strong> to select them, then copy</li>
             </ol>
             
-            <strong>💡 Or Just Type Them:</strong>
-            <p style="margin: 10px 0;">You can also just estimate and type directly in the fields below. For astronomy, ±0.01° (about 1km) is fine!</p>
+            <strong>Or Just Type Them:</strong>
+            <p style="margin: 10px 0;">You can also just estimate and type directly in the fields below. For astronomy, +/-0.01 degrees (about 1km) is fine!</p>
             
-            <textarea id="coordPaste" placeholder="Paste coordinates here (e.g., 37.7749, -122.4194 or 37.7749° N, 122.4194° W)"></textarea>
+            <textarea id="coordPaste" placeholder="Paste coordinates here (e.g., 37.7749, -122.4194)"></textarea>
             <button type="button" class="parse" onclick="parseCoordinates()">Parse & Fill Fields</button>
         </div>
         
@@ -82,7 +83,7 @@
         <h2 style="margin-top: 30px;">Time Synchronization</h2>
         <p style="font-size: 0.9em; color: #aaa;">Sync the ESP32 clock with your device's UTC time:</p>
         <button type="button" onclick="syncTime()" style="background: #FF9800;">
-            🕐 Sync Time Now
+            Sync Time Now
         </button>
         <p id="timeMessage" style="font-size: 0.9em;"></p>
         
@@ -123,11 +124,11 @@
             })
             .then(r => r.text())
             .then(msg => {
-                document.getElementById('timeMessage').innerHTML = '✅ ' + msg;
+                document.getElementById('timeMessage').innerHTML = 'OK: ' + msg;
                 document.getElementById('timeMessage').style.color = '#4CAF50';
             })
             .catch(err => {
-                document.getElementById('timeMessage').innerHTML = '❌ Error syncing time';
+                document.getElementById('timeMessage').innerHTML = 'Error syncing time';
                 document.getElementById('timeMessage').style.color = '#f44336';
             });
         }
@@ -205,7 +206,7 @@
                 
                 document.getElementById('lat').value = lat.toFixed(6);
                 document.getElementById('lon').value = lon.toFixed(6);
-                showStatus('✓ Coordinates parsed! Lat: ' + lat.toFixed(4) + '°, Lon: ' + lon.toFixed(4) + '°', 'success');
+                showStatus('Coordinates parsed! Lat: ' + lat.toFixed(4) + ', Lon: ' + lon.toFixed(4), 'success');
             } else {
                 showStatus('Could not parse coordinates. Try format: 37.7749, -122.4194<br>Or just type them directly in the fields below.', 'error');
             }
@@ -227,11 +228,11 @@
             })
             .then(r => r.text())
             .then(msg => {
-                document.getElementById('message').innerHTML = '✅ ' + msg;
+                document.getElementById('message').innerHTML = 'Saved: ' + msg;
                 document.getElementById('message').style.color = '#4CAF50';
             })
             .catch(err => {
-                document.getElementById('message').innerHTML = '❌ Error saving configuration';
+                document.getElementById('message').innerHTML = 'Error saving configuration';
                 document.getElementById('message').style.color = '#f44336';
             });
         };

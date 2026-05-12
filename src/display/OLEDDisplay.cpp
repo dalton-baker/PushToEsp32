@@ -5,7 +5,8 @@ OLEDDisplay::OLEDDisplay(SensorManager* sensors, Coordinates* coordinates)
       _sensors(sensors),
       _coordinates(coordinates),
       _connected(false),
-      _address(0) {}
+      _address(0),
+      _mode(DISPLAY_SETUP) {}
 
 bool OLEDDisplay::begin() {
     _diagnostics = "";
@@ -48,7 +49,6 @@ void OLEDDisplay::checkConnection() {
         _connected = false;
         Serial.println("[OLED] Display disconnected");
     } else if (!_connected && present) {
-        // Re-detect address (may have changed between 0x3C/0x3D)
         _address = detectAddress();
         if (_display.begin(SSD1306_SWITCHCAPVCC, _address)) {
             _connected = true;
@@ -69,7 +69,6 @@ String OLEDDisplay::getDiagnostics() {
 }
 
 uint8_t OLEDDisplay::detectAddress() {
-    // Try 0x3C first (most common), then 0x3D
     for (uint8_t addr : {(uint8_t)0x3C, (uint8_t)0x3D}) {
         Wire.beginTransmission(addr);
         if (Wire.endTransmission() == 0) {
@@ -83,9 +82,77 @@ bool OLEDDisplay::isConnected() {
     return _connected;
 }
 
+void OLEDDisplay::setMode(DisplayMode mode) {
+    _mode = mode;
+}
+
+DisplayMode OLEDDisplay::getMode() {
+    return _mode;
+}
+
+void OLEDDisplay::setWiFiInfo(const String& ssid, const String& password, const String& url) {
+    _wifiSSID = ssid;
+    _wifiPassword = password;
+    _wifiURL = url;
+}
+
 void OLEDDisplay::update() {
     if (!_connected) return;
 
+    _display.clearDisplay();
+    _display.setTextSize(1);
+
+    if (_mode == DISPLAY_SETUP) {
+        drawSetupMode();
+    } else {
+        drawObserveMode();
+    }
+
+    // Sensor status bar (always at bottom)
+    _display.setCursor(0, 56);
+    _display.print("Az:");
+    _display.print(_sensors->isAS5600Connected() ? "OK" : "--");
+    _display.print("  Alt:");
+    _display.print(_sensors->isMPU6050Connected() ? "OK" : "--");
+
+    _display.display();
+}
+
+void OLEDDisplay::drawSetupMode() {
+    TelescopePosition pos = _sensors->getPosition();
+
+    // Alt/Az at top
+    _display.setCursor(0, 0);
+    _display.print("Alt ");
+    if (pos.altitude >= 0) _display.print("+");
+    _display.print(pos.altitude, 1);
+    _display.print((char)247);
+
+    _display.setCursor(64, 0);
+    _display.print("Az ");
+    _display.print(pos.azimuth, 1);
+    _display.print((char)247);
+
+    // Divider
+    _display.drawLine(0, 11, OLED_WIDTH - 1, 11, SSD1306_WHITE);
+
+    // WiFi info
+    _display.setCursor(0, 15);
+    _display.print("WiFi: ");
+    _display.print(_wifiSSID);
+
+    _display.setCursor(0, 27);
+    _display.print("Pass: ");
+    _display.print(_wifiPassword);
+
+    _display.setCursor(0, 39);
+    _display.print(_wifiURL);
+
+    // Divider above status
+    _display.drawLine(0, 52, OLED_WIDTH - 1, 52, SSD1306_WHITE);
+}
+
+void OLEDDisplay::drawObserveMode() {
     TelescopePosition pos = _sensors->getPosition();
     EquatorialCoords eq = _coordinates->getCurrentPosition();
 
@@ -94,10 +161,7 @@ void OLEDDisplay::update() {
     formatRA(eq.ra, raBuf, sizeof(raBuf));
     formatDec(eq.dec, decBuf, sizeof(decBuf));
 
-    _display.clearDisplay();
-    _display.setTextSize(1);
-
-    // --- Alt / Az ---
+    // Alt/Az at top
     _display.setCursor(0, 0);
     _display.print("Alt ");
     if (pos.altitude >= 0) _display.print("+");
@@ -109,10 +173,10 @@ void OLEDDisplay::update() {
     _display.print(pos.azimuth, 2);
     _display.print((char)247);
 
-    // Divider line
+    // Divider
     _display.drawLine(0, 24, OLED_WIDTH - 1, 24, SSD1306_WHITE);
 
-    // --- RA / Dec ---
+    // RA/Dec
     _display.setCursor(0, 28);
     _display.print("RA  ");
     _display.print(raBuf);
@@ -121,17 +185,8 @@ void OLEDDisplay::update() {
     _display.print("Dec ");
     _display.print(decBuf);
 
-    // Divider line
+    // Divider above status
     _display.drawLine(0, 52, OLED_WIDTH - 1, 52, SSD1306_WHITE);
-
-    // Sensor status bar
-    _display.setCursor(0, 56);
-    _display.print("Az:");
-    _display.print(_sensors->isAS5600Connected() ? "OK" : "--");
-    _display.print("  Alt:");
-    _display.print(_sensors->isMPU6050Connected() ? "OK" : "--");
-
-    _display.display();
 }
 
 // Format RA as HHh MMm SSs
