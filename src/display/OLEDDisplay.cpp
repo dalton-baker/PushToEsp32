@@ -33,6 +33,8 @@ bool OLEDDisplay::begin() {
     _display.clearDisplay();
     _display.setTextColor(SSD1306_WHITE);
     _display.setTextSize(1);
+    // Default to a comfortably dim level for night-sky observing.
+    setBrightness(1);
     _display.setCursor(0, 0);
     _display.println("PushTo ESP32");
     _display.println("Starting...");
@@ -55,6 +57,7 @@ void OLEDDisplay::checkConnection() {
             _display.clearDisplay();
             _display.setTextColor(SSD1306_WHITE);
             _display.setTextSize(1);
+            setBrightness(1);
             _display.setCursor(0, 0);
             _display.println("PushTo ESP32");
             _display.println("Reconnected!");
@@ -94,6 +97,15 @@ void OLEDDisplay::setWiFiInfo(const String& ssid, const String& password, const 
     _wifiSSID = ssid;
     _wifiPassword = password;
     _wifiURL = url;
+}
+
+void OLEDDisplay::setBrightness(uint8_t value) {
+    if (!_connected) return;
+    // SSD1306 SETCONTRAST = 0x81, followed by a value byte 0..255.
+    _display.ssd1306_command(SSD1306_SETCONTRAST);
+    _display.ssd1306_command(value);
+    // Engage internal dim mode below ~16 for an extra-low floor.
+    _display.dim(value < 16);
 }
 
 void OLEDDisplay::update() {

@@ -1,5 +1,5 @@
-#ifndef CAPTIVE_PORTAL_H
-#define CAPTIVE_PORTAL_H
+#ifndef PUSHTO_WEB_SERVER_H
+#define PUSHTO_WEB_SERVER_H
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -9,42 +9,44 @@
 #include "../sensors/SensorManager.h"
 #include "../astronomy/Coordinates.h"
 
-class CaptivePortal {
+// Renamed from CaptivePortal: this is no longer a captive portal,
+// just a regular web server hosted on the ESP32's WiFi access point.
+class PushToWebServer {
 public:
-    CaptivePortal(Config* config, SensorManager* sensors, Coordinates* coords);
-    
+    PushToWebServer(Config* config, SensorManager* sensors, Coordinates* coords);
+
     void begin();
     void handle();
     void shutdown();
-    
+
     bool isRunning();
     String getAPIP();
     String getSSID();
     String getPassword();
-    
+
     // WebSocket methods
     void broadcastPosition();
     bool hasWebSocketClients();
-    
+
 private:
     Config* _config;
     SensorManager* _sensors;
     Coordinates* _coords;
-    
+
     AsyncWebServer* server;
     AsyncWebSocket* ws;
-    
+
     bool _running;
     unsigned long _shutdownRequestedAt;
     String apIP;
-    
+
     // Web page setup
     void setupRoutes();
-    
+
     // WebSocket event handler
-    void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, 
+    void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client,
                           AwsEventType type, void* arg, uint8_t* data, size_t len);
-    
+
     // API handlers
     void handleGetConfig(AsyncWebServerRequest* request);
     void handleConfigSubmit(AsyncWebServerRequest* request);
@@ -57,4 +59,4 @@ private:
     void handleGetAlignmentStars(AsyncWebServerRequest* request);
 };
 
-#endif // CAPTIVE_PORTAL_H
+#endif // PUSHTO_WEB_SERVER_H

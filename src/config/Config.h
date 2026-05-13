@@ -5,10 +5,15 @@
 #include <Preferences.h>
 
 struct AlignmentStar {
-    double ra;      // Right Ascension (hours)
-    double dec;     // Declination (degrees)
-    float az;       // Azimuth at alignment (degrees)
-    float alt;      // Altitude at alignment (degrees)
+    double ra;           // Right Ascension (hours)
+    double dec;          // Declination (degrees)
+    float az;            // Measured azimuth at alignment (degrees)
+    float alt;           // Measured altitude at alignment (degrees)
+    float az_offset;     // expected_az - measured_az (deg, signed)
+    float alt_offset;    // expected_alt - measured_alt (deg, signed)
+    float expected_az;   // Catalog azimuth at the moment this star was synced
+    float expected_alt;  // Catalog altitude at the moment this star was synced
+    bool valid;          // True if this star slot has been populated
 };
 
 struct SiteConfig {
@@ -32,6 +37,7 @@ public:
     
     // Alignment stars
     void setAlignmentStar(int starNum, double ra, double dec, float az, float alt, const String& name = "");
+    void setAlignmentStarOffsets(int starNum, float az_offset, float alt_offset, float exp_az, float exp_alt);
     AlignmentStar getAlignmentStar(int starNum);
     String getAlignmentStarName(int starNum);
     bool isAligned();

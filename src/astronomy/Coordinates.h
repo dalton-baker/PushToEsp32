@@ -35,6 +35,11 @@ public:
     // Two-star alignment transformation
     void performAlignment();
     bool isAligned();
+
+    // Capture the offset between the catalog star (RA/Dec at given time) and
+    // the currently-measured raw sensor position. Stores into Config and
+    // refreshes the active alignment correction.
+    bool captureAlignmentOffset(int starNum, double ra, double dec, time_t whenUtc);
     
     // Calculate Local Sidereal Time
     double getLocalSiderealTime(time_t time);
@@ -51,7 +56,11 @@ private:
     
     // Alignment matrices (for two-star alignment correction)
     bool _alignmentValid;
+    bool _useRotationMatrix;  // true when 2-star rotation matrix is active
     float _alignmentMatrix[3][3];
+    // Average alt/az offsets across populated alignment stars (degrees)
+    float _altOffset;
+    float _azOffset;
     
     // Helper functions
     double normalizeRA(double ra);      // Normalize RA to 0-24 hours

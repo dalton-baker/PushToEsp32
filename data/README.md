@@ -1,38 +1,25 @@
 # Web UI Files
 
-This folder contains the HTML files served by the ESP32 captive portal.
+This folder contains the static assets served by the ESP32's web server (uploaded to LittleFS).
 
 ## Files
-- `index.html` - Main dashboard page
-- `config.html` - Site configuration with auto-detect location feature
-- `align.html` - 2-star alignment interface
-- `diagnostics.html` - System diagnostics
+- `index.html` - Single-page web UI: position, location, time, alignment, finalize
+- `stars.json` - Star catalog used by the alignment star picker
 
 ## Uploading to ESP32
 
-The HTML files need to be uploaded to the ESP32's LittleFS filesystem:
+The files need to be uploaded to the ESP32's LittleFS filesystem:
 
-### Method 1: Using PlatformIO (Recommended)
+### Method 1: Using PlatformIO CLI
 ```bash
-# Upload the filesystem
 pio run --target uploadfs --environment seeed_xiao_esp32s3
 ```
 
 ### Method 2: Using VS Code PlatformIO Extension
 1. Click on the PlatformIO icon in the left sidebar
-2. Expand your environment (seeed_xiao_esp32s3)
-3. Under "Platform", click "Upload Filesystem Image"
+2. Expand your environment (`seeed_xiao_esp32s3`)
+3. Under "Platform", click **Upload Filesystem Image**
 
-## Editing Files
+## Editing
 
-You can now edit these HTML files directly with full syntax highlighting and they will be served by the ESP32 after uploading the filesystem.
-
-**Note:** After making changes to these files, you need to run `uploadfs` again to update the files on the ESP32.
-
-## Benefits of This Approach
-
-✅ Proper syntax highlighting when editing  
-✅ Easier to maintain and debug  
-✅ Smaller compiled firmware size  
-✅ Separate CSS/JS files possible  
-✅ Can update UI without recompiling firmware (just re-upload filesystem)
+Edit `index.html` directly with full syntax highlighting. After making changes, run `uploadfs` again to push them to the device. No firmware rebuild required for UI-only changes.

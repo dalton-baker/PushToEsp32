@@ -11,7 +11,7 @@
  * - FreeRTOS dual-core: sensor reading (core 0), WiFi/LX200 (core 1)
  * - 100Hz sensor polling, 10Hz position updates
  * - Rolling average (16 samples) for altitude
- * - WiFi AP with mDNS (setup.local) for configuration
+ * - WiFi AP with mDNS (setup.local) hosting a web UI for configuration
  * - LX200 protocol over TCP
  * - 2-star alignment
  * - Setup mode: WiFi on, OLED shows WiFi info
@@ -24,7 +24,7 @@
 #include "sensors/SensorManager.h"
 #include "astronomy/Coordinates.h"
 #include "lx200/LX200Server.h"
-#include "web/CaptivePortal.h"
+#include "web/WebServer.h"
 #include "display/OLEDDisplay.h"
 
 // I2C Configuration
@@ -41,7 +41,7 @@ Config config;
 SensorManager sensors;
 Coordinates coordinates(&config, &sensors);
 LX200Server lx200(&coordinates, &config);
-CaptivePortal portal(&config, &sensors, &coordinates);
+PushToWebServer webServer(&config, &sensors, &coordinates);
 OLEDDisplay oled(&sensors, &coordinates);
 
 // Task handles
@@ -116,7 +116,7 @@ void displayTask(void* parameter) {
  * Network Task - Core 1
  * Handles WiFi, web server, and LX200 protocol
  * Updates at lower frequency (10Hz)
- * Monitors portal state and switches display mode when finalized
+ * Monitors web server state and switches display mode when finalized
  */
 void networkTask(void* parameter) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -125,21 +125,21 @@ void networkTask(void* parameter) {
     Serial.println("[Network Task] Started on core " + String(xPortGetCoreID()));
     
     while (true) {
-        // Handle web portal (no-op if shut down)
-        portal.handle();
+        // Handle web server (no-op if shut down)
+        webServer.handle();
         
         // Handle LX200 clients
         lx200.handle();
         
-        // Check if portal was shut down (finalize) - switch to observe mode
-        if (!portal.isRunning() && oled.getMode() == DISPLAY_SETUP) {
+        // Check if web server was shut down (finalize) - switch to observe mode
+        if (!webServer.isRunning() && oled.getMode() == DISPLAY_SETUP) {
             oled.setMode(DISPLAY_OBSERVE);
-            Serial.println("[Network] Portal finalized - switching to observe mode");
+            Serial.println("[Network] Web server finalized - switching to observe mode");
         }
         
         // Broadcast position data to WebSocket clients (if any)
-        if (portal.isRunning() && portal.hasWebSocketClients()) {
-            portal.broadcastPosition();
+        if (webServer.isRunning() && webServer.hasWebSocketClients()) {
+            webServer.broadcastPosition();
         }
         
         // Blink LED if client connected
@@ -189,19 +189,19 @@ void setup() {
     // Print diagnostics
     Serial.println("\n" + sensors.getDiagnostics());
     
-    // Initialize WiFi and web portal
+    // Initialize WiFi and web server
     Serial.println("[Setup] Starting WiFi access point...");
-    portal.begin();
-    Serial.println("[Setup] WiFi SSID: " + portal.getSSID());
-    Serial.println("[Setup] WiFi Pass: " + portal.getPassword());
-    Serial.println("[Setup] Portal IP: " + portal.getAPIP());
+    webServer.begin();
+    Serial.println("[Setup] WiFi SSID: " + webServer.getSSID());
+    Serial.println("[Setup] WiFi Pass: " + webServer.getPassword());
+    Serial.println("[Setup] Server IP: " + webServer.getAPIP());
     Serial.println("[Setup] mDNS: http://setup.local");
     
     // Initialize OLED display (optional hardware)
     Serial.println("[Setup] Checking for OLED display...");
     oled.begin();
     oled.setMode(DISPLAY_SETUP);
-    oled.setWiFiInfo(portal.getSSID(), portal.getPassword(), "setup.local");
+    oled.setWiFiInfo(webServer.getSSID(), webServer.getPassword(), "setup.local");
 
     // Initialize LX200 server
     Serial.println("[Setup] Starting LX200 server...");

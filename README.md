@@ -19,10 +19,11 @@ A complete telescope push-to system using ESP32-S3 with digital encoders and acc
   - Push-to only (GoTo commands acknowledged but not executed)
 
 - **Web-Based Configuration**
-  - WiFi captive portal for easy setup
-  - Site configuration (latitude, longitude, timezone)
-  - 2-star alignment procedure
-  - Real-time diagnostics and sensor status
+  - Single-page web UI hosted on the ESP32's WiFi access point
+  - Site configuration (latitude, longitude)
+  - Time sync from your device's clock
+  - 1-star or 2-star alignment procedure
+  - Real-time position and sensor status over WebSocket
 
 ## 📋 Hardware Requirements
 
@@ -80,18 +81,20 @@ pio device monitor
    - SSID: `PushTo-Setup`
    - Password: `telescope`
 
-2. **Configure Site**
+2. **Open the Web UI**
    - Connect to the WiFi network
-   - Browser should automatically open the configuration portal
-   - If not, navigate to `192.168.4.1`
-   - Enter your latitude, longitude, and timezone
+   - Open a browser to `http://192.168.0.1` or `http://setup.local`
+   - The single-page UI walks you through location, time, and alignment
 
-3. **Perform Alignment**
+3. **Configure Site & Time**
+   - Enter latitude / longitude (or paste them &mdash; instructions are in the dropdown)
+   - Tap **Sync Time From This Device** to set the ESP32 clock
+
+4. **Perform Alignment**
    - Point telescope at a known bright star
-   - Enter the star's RA/Dec coordinates in the alignment page
-   - Click "Set Star 1"
-   - Repeat for a second star (ideally 60-90° away)
-   - System will compute alignment correction
+   - Pick the star from the list and click **Set Star 1**
+   - For tilt correction, repeat with a second star (ideally 60-90&deg; away)
+   - When done, hit **Finalize Setup** to turn off WiFi and save power
 
 ### 4. Connect Planetarium Software
 
@@ -101,14 +104,14 @@ Configure your planetarium software to connect via LX200 protocol:
 - Tools → Configuration → Plugins → Telescope Control
 - Add telescope: LX200/Meade
 - Connection: TCP/IP
-- Host: `192.168.4.1` (or ESP32 IP address)
+- Host: `192.168.0.1` (or ESP32 IP address)
 - Port: `4030`
 
 **SkySafari:**
 - Settings → Telescope → Setup
 - Type: Meade LX200 Classic
 - Connection: WiFi
-- IP Address: `192.168.4.1`
+- IP Address: `192.168.0.1`
 - Port: `4030`
 
 ## 📁 Project Structure
@@ -133,8 +136,8 @@ PushToEsp32/
 │   │   ├── LX200Server.h      # LX200 protocol server
 │   │   └── LX200Server.cpp
 │   └── web/
-│       ├── CaptivePortal.h    # Web configuration interface
-│       └── CaptivePortal.cpp
+│       ├── WebServer.h        # Web UI + JSON API + WebSocket
+│       └── WebServer.cpp
 └── README.md
 ```
 
@@ -214,7 +217,7 @@ Supported commands:
 ### Connection Issues
 
 - **Can't find WiFi network**: Wait 30 seconds after boot
-- **Captive portal doesn't open**: Manually navigate to `192.168.4.1`
+- **Web UI doesn't load**: Manually navigate to `http://192.168.0.1` or `http://setup.local`
 - **Stellarium won't connect**: Check firewall settings, verify port 4030
 
 ### Position Accuracy

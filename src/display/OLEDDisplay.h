@@ -38,6 +38,10 @@ public:
     // Set WiFi info to display in setup mode
     void setWiFiInfo(const String& ssid, const String& password, const String& url);
 
+    // Set OLED brightness (contrast). 0 = dimmest, 255 = brightest.
+    // Also enables the SSD1306 internal dim mode for very low values.
+    void setBrightness(uint8_t value);
+
     // Refresh the display with current coordinate data.
     void update();
 
