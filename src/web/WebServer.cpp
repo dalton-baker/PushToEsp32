@@ -8,6 +8,51 @@
 #define AP_CHANNEL 6
 #define AP_MAX_CONNECTIONS 4
 
+// ---------------------------------------------------------------------------
+// Sexagesimal parsers
+//
+// The web UI sends RA as "HH:MM:SS" (or "HH:MM:SS.ss") and Dec as
+// "+DD:MM:SS" / "-DD:MM:SS". A bare decimal ("18.615") is also accepted so
+// that legacy inputs and direct API callers still work.
+//
+// IMPORTANT: do NOT use String::toDouble() on a sexagesimal value — it stops
+// at the first ':' and silently truncates the minutes/seconds. That bug
+// caused the alignment offset to be computed for the wrong sky position,
+// which made the displayed Alt/Az "not even close" to the catalog star
+// while the round-tripped RA/Dec still looked correct.
+// ---------------------------------------------------------------------------
+static double parseSexagesimalRA(const String& s) {
+    int firstColon = s.indexOf(':');
+    if (firstColon < 0) return s.toDouble();      // already decimal hours
+
+    int secondColon = s.indexOf(':', firstColon + 1);
+    int    h = s.substring(0, firstColon).toInt();
+    int    m = s.substring(firstColon + 1,
+                           secondColon < 0 ? s.length() : secondColon).toInt();
+    double sec = (secondColon < 0) ? 0.0
+                                   : s.substring(secondColon + 1).toDouble();
+    return h + (m / 60.0) + (sec / 3600.0);
+}
+
+static double parseSexagesimalDec(const String& s) {
+    if (s.length() == 0) return 0.0;
+    int firstSep = s.indexOf(':');
+    if (firstSep < 0) firstSep = s.indexOf('*');  // LX200 also uses '*'
+    if (firstSep < 0) return s.toDouble();        // already decimal degrees
+
+    bool negative = (s.charAt(0) == '-');
+    int  start    = (s.charAt(0) == '-' || s.charAt(0) == '+') ? 1 : 0;
+
+    int secondSep = s.indexOf(':', firstSep + 1);
+    int    d = s.substring(start, firstSep).toInt();
+    int    m = s.substring(firstSep + 1,
+                           secondSep < 0 ? s.length() : secondSep).toInt();
+    double sec = (secondSep < 0) ? 0.0
+                                 : s.substring(secondSep + 1).toDouble();
+    double mag = abs(d) + (m / 60.0) + (sec / 3600.0);
+    return negative ? -mag : mag;
+}
+
 PushToWebServer::PushToWebServer(Config* config, SensorManager* sensors, Coordinates* coords) {
     _config = config;
     _sensors = sensors;
@@ -238,9 +283,26 @@ void PushToWebServer::handleAlignmentSubmit(AsyncWebServerRequest* request) {
             starName = request->getParam("name", true)->value();
         }
 
-        // Parse RA and Dec (simplified parsing)
-        double ra = raStr.toDouble(); // TODO: Proper HH:MM:SS parsing
-        double dec = decStr.toDouble(); // TODO: Proper DD:MM:SS parsing
+        // Parse RA (hours) and Dec (degrees) — accepts HH:MM:SS / DD:MM:SS or
+        // bare decimal. See parseSexagesimal* at top of file.
+        double ra  = parseSexagesimalRA(raStr);
+        double dec = parseSexagesimalDec(decStr);
+
+        // Pre-flight: alignment is meaningless without site lat/lon and a UTC
+        // clock. Without these, equatorialToHorizontal returns garbage and the
+        // captured offset will be wrong even if everything else is right.
+        SiteConfig site = _config->getSite();
+        if (!site.valid) {
+            request->send(400, "text/plain",
+                "Set observing site (lat/lon) before aligning");
+            return;
+        }
+        time_t now = time(nullptr);
+        if (now < 1700000000) { // sanity: well after 2023-11-14
+            request->send(400, "text/plain",
+                "System time not set — sync time before aligning");
+            return;
+        }
 
         TelescopePosition pos = _sensors->getPosition();
         if (!pos.valid) {
@@ -253,8 +315,22 @@ void PushToWebServer::handleAlignmentSubmit(AsyncWebServerRequest* request) {
 
         // Capture the (expected - measured) alt/az offsets at this instant
         // so the correction can be applied later.
-        time_t now = time(nullptr);
-        _coords->captureAlignmentOffset(starNum, ra, dec, now);
+        if (!_coords->captureAlignmentOffset(starNum, ra, dec, now)) {
+            request->send(500, "text/plain", "Failed to capture alignment offset");
+            return;
+        }
+
+        // Diagnostic: log measured vs expected so misalignment sources
+        // (bad parse, bad time, bad site) are obvious in serial.
+        AlignmentStar saved = _config->getAlignmentStar(starNum);
+        Serial.printf("[Align] Star %d \"%s\"\n", starNum + 1, starName.c_str());
+        Serial.printf("        Catalog : RA=%.4fh  Dec=%.4f\xC2\xB0\n", ra, dec);
+        Serial.printf("        Expected: Alt=%.3f\xC2\xB0  Az=%.3f\xC2\xB0  (now)\n",
+                      saved.expected_alt, saved.expected_az);
+        Serial.printf("        Measured: Alt=%.3f\xC2\xB0  Az=%.3f\xC2\xB0\n",
+                      pos.altitude, pos.azimuth);
+        Serial.printf("        Offset  : dAlt=%+.3f\xC2\xB0  dAz=%+.3f\xC2\xB0\n",
+                      saved.alt_offset, saved.az_offset);
 
         request->send(200, "text/plain", "Star " + String(starNum + 1) + " set!");
     } else {
