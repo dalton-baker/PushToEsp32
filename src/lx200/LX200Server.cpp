@@ -220,16 +220,16 @@ void LX200Server::handleGetDec(WiFiClient& client) {
 }
 
 void LX200Server::handleGetAltitude(WiFiClient& client) {
-    TelescopePosition pos = _coords->getRawPosition();
-    String alt = decToString(pos.altitude); // Use same format as Dec
+    HorizontalCoords horiz = _coords->getCorrectedHorizontal();
+    String alt = decToString(horiz.alt); // Use same format as Dec
     client.print(alt);
     client.write("#");
     client.flush();
 }
 
 void LX200Server::handleGetAzimuth(WiFiClient& client) {
-    TelescopePosition pos = _coords->getRawPosition();
-    String az = decToString(pos.azimuth); // Use same format, but 0-360
+    HorizontalCoords horiz = _coords->getCorrectedHorizontal();
+    String az = decToString(horiz.az); // Use same format, but 0-360
     client.print(az);
     client.write("#");
     client.flush();

@@ -106,6 +106,15 @@ void OLEDDisplay::setBrightness(uint8_t value) {
     _display.ssd1306_command(value);
     // Engage internal dim mode below ~16 for an extra-low floor.
     _display.dim(value < 16);
+    // At very low brightness, also reduce pre-charge period and VCOMH deselect
+    // level — the two remaining hardware controls that affect panel luminance
+    // independently of the contrast register.
+    if (value < 16) {
+        _display.ssd1306_command(0xD9); // Set pre-charge period
+        _display.ssd1306_command(0x11); // Phase 1 = 1 DCLK, Phase 2 = 1 DCLK (minimum)
+        _display.ssd1306_command(0xDB); // Set VCOMH deselect level
+        _display.ssd1306_command(0x00); // ~0.65×VCC (lowest available)
+    }
 }
 
 void OLEDDisplay::update() {
@@ -131,18 +140,18 @@ void OLEDDisplay::update() {
 }
 
 void OLEDDisplay::drawSetupMode() {
-    TelescopePosition pos = _sensors->getPosition();
+    HorizontalCoords horiz = _coordinates->getCorrectedHorizontal();
 
-    // Alt/Az at top
+    // Alt/Az at top (alignment-corrected)
     _display.setCursor(0, 0);
     _display.print("Alt ");
-    if (pos.altitude >= 0) _display.print("+");
-    _display.print(pos.altitude, 1);
+    if (horiz.alt >= 0) _display.print("+");
+    _display.print(horiz.alt, 1);
     _display.print((char)247);
 
     _display.setCursor(64, 0);
     _display.print("Az ");
-    _display.print(pos.azimuth, 1);
+    _display.print(horiz.az, 1);
     _display.print((char)247);
 
     // Divider
@@ -165,7 +174,7 @@ void OLEDDisplay::drawSetupMode() {
 }
 
 void OLEDDisplay::drawObserveMode() {
-    TelescopePosition pos = _sensors->getPosition();
+    HorizontalCoords horiz = _coordinates->getCorrectedHorizontal();
     EquatorialCoords eq = _coordinates->getCurrentPosition();
 
     char raBuf[16];
@@ -173,16 +182,16 @@ void OLEDDisplay::drawObserveMode() {
     formatRA(eq.ra, raBuf, sizeof(raBuf));
     formatDec(eq.dec, decBuf, sizeof(decBuf));
 
-    // Alt/Az at top
+    // Alt/Az at top (alignment-corrected)
     _display.setCursor(0, 0);
     _display.print("Alt ");
-    if (pos.altitude >= 0) _display.print("+");
-    _display.print(pos.altitude, 2);
+    if (horiz.alt >= 0) _display.print("+");
+    _display.print(horiz.alt, 2);
     _display.print((char)247);
 
     _display.setCursor(0, 12);
     _display.print("Az  ");
-    _display.print(pos.azimuth, 2);
+    _display.print(horiz.az, 2);
     _display.print((char)247);
 
     // Divider

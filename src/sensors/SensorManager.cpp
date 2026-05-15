@@ -105,9 +105,17 @@ void SensorManager::checkConnections() {
 }
 
 void SensorManager::readSensors() {
-    // Read azimuth from AS5600 if initialized
+    // Read azimuth from AS5600 if initialized.
+    // The encoder is mounted upside-down (magnet beneath the chip), which
+    // makes its native angle increase counter-clockwise when viewed from
+    // above. The astronomical alt/az convention requires azimuth to grow
+    // clockwise from above (N -> E -> S -> W), so invert here.
     if (as5600Initialized) {
-        currentAzimuth = as5600.getAngleDegrees();
+        float raw = as5600.getAngleDegrees();           // 0..360 (CCW from above)
+        float az  = 360.0f - raw;                       // flip to CW from above
+        if (az >= 360.0f) az -= 360.0f;                 // normalize the 360 -> 0 case
+        if (az <    0.0f) az += 360.0f;                 // belt-and-suspenders
+        currentAzimuth = az;
     }
     
     // Read acceleration from MPU6050 if initialized

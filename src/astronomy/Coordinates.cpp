@@ -117,6 +117,19 @@ EquatorialCoords Coordinates::getCurrentPosition() {
     return horizontalToEquatorial(horiz, now);
 }
 
+HorizontalCoords Coordinates::getCorrectedHorizontal() {
+    TelescopePosition pos = _sensors->getPosition();
+
+    HorizontalCoords horiz = {pos.azimuth, pos.altitude};
+    if (!pos.valid) {
+        return horiz;
+    }
+    if (_alignmentValid) {
+        horiz = applyAlignmentCorrection(horiz);
+    }
+    return horiz;
+}
+
 TelescopePosition Coordinates::getRawPosition() {
     return _sensors->getPosition();
 }
@@ -125,6 +138,12 @@ void Coordinates::performAlignment() {
     if (_config->isAligned()) {
         computeAlignmentMatrix();
         _alignmentValid = true;
+    } else {
+        // No stars configured — make sure no stale correction lingers.
+        _alignmentValid = false;
+        _useRotationMatrix = false;
+        _altOffset = 0.0f;
+        _azOffset = 0.0f;
     }
 }
 

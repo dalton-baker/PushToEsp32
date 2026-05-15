@@ -26,9 +26,13 @@ public:
     // Convert equatorial to horizontal coordinates
     HorizontalCoords equatorialToHorizontal(EquatorialCoords eq, time_t time);
     
-    // Get current telescope pointing coordinates (RA/Dec)
+    // Get current telescope pointing coordinates (RA/Dec), alignment-corrected
     EquatorialCoords getCurrentPosition();
-    
+
+    // Get current telescope pointing coordinates (Alt/Az), alignment-corrected.
+    // Falls back to raw sensor values if no alignment is active or sensors invalid.
+    HorizontalCoords getCorrectedHorizontal();
+
     // Get raw sensor position
     TelescopePosition getRawPosition();
     

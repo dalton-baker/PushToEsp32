@@ -282,10 +282,13 @@ void PushToWebServer::handleGetPosition(AsyncWebServerRequest* request) {
     StaticJsonDocument<256> doc;
 
     TelescopePosition pos = _sensors->getPosition();
+    HorizontalCoords horiz = _coords->getCorrectedHorizontal();
     EquatorialCoords eq = _coords->getCurrentPosition();
 
-    doc["az"] = pos.azimuth;
-    doc["alt"] = pos.altitude;
+    doc["az"] = horiz.az;
+    doc["alt"] = horiz.alt;
+    doc["azRaw"] = pos.azimuth;
+    doc["altRaw"] = pos.altitude;
     doc["ra"] = String(eq.ra, 4);
     doc["dec"] = String(eq.dec, 4);
 
@@ -333,13 +336,16 @@ void PushToWebServer::broadcastPosition() {
         return; // No clients connected
     }
 
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<384> doc;
 
     TelescopePosition pos = _sensors->getPosition();
+    HorizontalCoords horiz = _coords->getCorrectedHorizontal();
     EquatorialCoords eq = _coords->getCurrentPosition();
 
-    doc["az"] = String(pos.azimuth, 2);
-    doc["alt"] = String(pos.altitude, 2);
+    doc["az"] = String(horiz.az, 2);
+    doc["alt"] = String(horiz.alt, 2);
+    doc["azRaw"] = String(pos.azimuth, 2);
+    doc["altRaw"] = String(pos.altitude, 2);
     doc["ra"] = String(eq.ra, 4);
     doc["dec"] = String(eq.dec, 4);
     doc["time"] = (uint32_t)time(nullptr);
