@@ -5,7 +5,7 @@
  * - XIAO ESP32-S3
  * - AS5600 magnetic encoder (azimuth) @ 0x36
  * - MPU6050 accelerometer (altitude) @ 0x68
- * - I2C: SDA=GPIO5, SCL=GPIO6
+ * - I2C: SDA=GPIO3 (D2), SCL=GPIO2 (D1)
  * 
  * Features:
  * - FreeRTOS dual-core: sensor reading (core 0), WiFi/LX200 (core 1)
