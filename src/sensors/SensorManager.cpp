@@ -1,233 +1,333 @@
 #include "SensorManager.h"
 
-SensorManager::SensorManager() : as5600(&Wire) {
-    sampleIndex = 0;
-    sampleCount = 0;
-    currentAzimuth = 0.0;
-    currentAltitude = 0.0;
-    altitudeOffset = 0.0;
-    as5600Initialized = false;
-    mpu6050Initialized = false;
-    
-    // Initialize sample buffer
+SensorManager::SensorManager() : _as5600(&Wire) {
+    _sampleIndex = 0;
+    _sampleCount = 0;
+    _as5600Initialized = false;
+    _mpu6050Initialized = false;
+    _mpuWhoAmI = 0;
+    _as5600Misses = 0;
+    _mpu6050Misses = 0;
+
+    memset(&_sample, 0, sizeof(_sample));
+    memset(&_health, 0, sizeof(_health));
+
     for (int i = 0; i < AVERAGE_SAMPLES; i++) {
-        altitudeSamples[i] = 0.0;
+        _altitudeSamples[i] = 0.0f;
     }
 }
 
 bool SensorManager::begin(uint8_t sda, uint8_t scl, uint32_t i2cFreq) {
-    Serial.println("[SensorMgr] Initializing I2C...");
-    
-    // Initialize I2C with custom pins and frequency
+    Serial.println("[Sensors] Initializing I2C...");
+
     Wire.begin(sda, scl);
     Wire.setClock(i2cFreq);
-    
-    Serial.println("[SensorMgr] I2C initialized, waiting for sensors...");
-    delay(500); // Give sensors more time to power up
-    
-    // Initialize sensors
-    as5600Initialized = initAS5600();
+
+    Serial.printf("[Sensors] I2C up on SDA=%u SCL=%u @ %u Hz\n", sda, scl, i2cFreq);
+    delay(500); // Give sensors time to power up
+
+    _as5600Initialized = initAS5600();
     delay(100);
-    mpu6050Initialized = initMPU6050();
-    
-    Serial.print("[SensorMgr] Initialization complete - AS5600: ");
-    Serial.print(as5600Initialized ? "OK" : "FAILED");
-    Serial.print(", MPU6050: ");
-    Serial.println(mpu6050Initialized ? "OK" : "FAILED");
-    
-    return as5600Initialized || mpu6050Initialized; // Return true if at least one works
+    _mpu6050Initialized = initMPU6050();
+
+    refreshHealth();
+
+    Serial.printf("[Sensors] Init complete - AS5600: %s, MPU6050: %s\n",
+                  _as5600Initialized ? "OK" : "FAILED",
+                  _mpu6050Initialized ? "OK" : "FAILED");
+
+    // At least one axis working is enough to be useful.
+    return _as5600Initialized || _mpu6050Initialized;
 }
 
 bool SensorManager::initAS5600() {
-    Serial.println("[SensorMgr] Attempting AS5600 init...");
-    as5600.begin();
+    Serial.println("[Sensors] Probing AS5600 (azimuth)...");
+    _as5600.begin();
     delay(50);
-    bool ok = as5600.isConnected();
-    if (!ok) {
-        Serial.println("[SensorMgr] AS5600 NOT responding to I2C!");
-    } else {
-        Serial.println("[SensorMgr] AS5600 detected and responding!");
-        Serial.print("[SensorMgr] AS5600 raw angle: ");
-        Serial.println(as5600.getRawAngle());
-    }
-    return ok;
-}
 
-bool SensorManager::initMPU6050() {
-    Serial.println("[SensorMgr] Attempting MPU6050 init...");
-    
-    // Check if responding before calling begin (which can mess up I2C bus)
-    Wire.beginTransmission(0x68);
-    if (Wire.endTransmission() != 0) {
-        Serial.println("[SensorMgr] MPU6050 NOT responding to I2C!");
+    if (!_as5600.isConnected()) {
+        Serial.println("[Sensors] AS5600 not responding on I2C");
         return false;
     }
-    
-    mpu6050.begin(0x68, &Wire);
-    delay(50);
-    
-    // Configure MPU6050
-    mpu6050.setAccelerometerRange(MPU6050_RANGE_2_G);
-    mpu6050.setGyroRange(MPU6050_RANGE_250_DEG);
-    mpu6050.setFilterBandwidth(MPU6050_BAND_21_HZ);
-    
-    Serial.println("[SensorMgr] MPU6050 detected and configured!");
+
+    Serial.printf("[Sensors] AS5600 detected, raw angle %u\n", _as5600.getRawAngle());
+    if (!_as5600.isMagnetDetected()) {
+        Serial.println("[Sensors] WARNING: AS5600 reports no magnet detected");
+    }
     return true;
 }
 
-void SensorManager::checkConnections() {
-    // Check AS5600
-    bool as5600Present = as5600.isConnected();
-    if (as5600Initialized && !as5600Present) {
-        as5600Initialized = false;
-        Serial.println("[SensorMgr] AS5600 disconnected");
-    } else if (!as5600Initialized && as5600Present) {
-        as5600Initialized = initAS5600();
-        if (as5600Initialized)
-            Serial.println("[SensorMgr] AS5600 reconnected!");
-    }
+bool SensorManager::probeMPU6050() {
+    Wire.beginTransmission(MPU6050_ADDRESS);
+    return (Wire.endTransmission() == 0);
+}
 
-    // Check MPU6050
-    Wire.beginTransmission(0x68);
-    bool mpu6050Present = (Wire.endTransmission() == 0);
-    if (mpu6050Initialized && !mpu6050Present) {
-        mpu6050Initialized = false;
-        // Reset rolling average so stale data doesn't linger
-        sampleCount = 0;
-        sampleIndex = 0;
-        currentAltitude = 0.0;
-        Serial.println("[SensorMgr] MPU6050 disconnected");
-    } else if (!mpu6050Initialized && mpu6050Present) {
-        mpu6050Initialized = initMPU6050();
-        if (mpu6050Initialized)
-            Serial.println("[SensorMgr] MPU6050 reconnected!");
+bool SensorManager::writeMpuRegister(uint8_t reg, uint8_t value) {
+    Wire.beginTransmission(MPU6050_ADDRESS);
+    Wire.write(reg);
+    Wire.write(value);
+    return Wire.endTransmission() == 0;
+}
+
+uint8_t SensorManager::readMpuRegister(uint8_t reg) {
+    Wire.beginTransmission(MPU6050_ADDRESS);
+    Wire.write(reg);
+    if (Wire.endTransmission(false) != 0) return 0xFF;
+    Wire.requestFrom(MPU6050_ADDRESS, 1);
+    return Wire.available() ? Wire.read() : 0xFF;
+}
+
+const char* SensorManager::describeMpuId(uint8_t whoAmI) {
+    switch (whoAmI) {
+        case 0x68: return "MPU6050";
+        case 0x70: return "MPU6500";
+        case 0x71: return "MPU9250";
+        case 0x73: return "MPU9255";
+        case 0x74: return "MPU6515";
+        case 0x98: return "ICM20689";
+        default:   return "unknown";
     }
 }
 
-void SensorManager::readSensors() {
-    // Read azimuth from AS5600 if initialized.
+// Reset and configure the chip ourselves.
+//
+// Adafruit's begin() refuses anything whose WHO_AM_I is not 0x68, so on the
+// MPU6500 and other pin-compatible parts it returns false BEFORE running its
+// reset-and-configure sequence. Ignoring that return leaves the device running
+// on whatever register state it happens to hold - and because an ESP32 reset
+// does not power-cycle the sensor, that stale state survives reboots and
+// reflashes. The symptom is a gravity vector whose magnitude is not 9.81, which
+// in turn makes altitude badly wrong.
+bool SensorManager::configureMpu() {
+    if (!writeMpuRegister(MPU_REG_PWR_MGMT_1, 0x80)) {  // DEVICE_RESET
+        return false;
+    }
+    delay(100);                                          // reset takes ~50ms
+
+    writeMpuRegister(MPU_REG_PWR_MGMT_1, 0x01);          // wake, clock = gyro X PLL
+    delay(10);
+    writeMpuRegister(MPU_REG_PWR_MGMT_2, 0x00);          // every axis enabled
+    writeMpuRegister(MPU_REG_CONFIG, 0x04);              // DLPF ~21Hz
+    writeMpuRegister(MPU_REG_SMPLRT_DIV, 0x00);
+    writeMpuRegister(MPU_REG_GYRO_CONFIG, 0x00);         // +/-250 deg/s
+    writeMpuRegister(MPU_REG_ACCEL_CONFIG, 0x00);        // +/-2g -> 16384 LSB/g
+    writeMpuRegister(MPU_REG_ACCEL_CONFIG2, 0x04);       // accel DLPF, MPU6500+
+    delay(50);
+
+    return readMpuRegister(MPU_REG_ACCEL_CONFIG) == 0x00;
+}
+
+bool SensorManager::initMPU6050() {
+    Serial.println("[Sensors] Probing accelerometer...");
+
+    if (!probeMPU6050()) {
+        Serial.println("[Sensors] Accelerometer not responding on I2C");
+        return false;
+    }
+
+    _mpuWhoAmI = readMpuRegister(MPU_REG_WHO_AM_I);
+
+    // Creates the library's bus object, which getEvent() needs. It returns
+    // false on anything that is not a genuine MPU6050; that is expected and not
+    // fatal, because we configure the device ourselves below.
+    bool libraryAccepted = _mpu6050.begin(MPU6050_ADDRESS, &Wire);
+
+    if (!configureMpu()) {
+        Serial.println("[Sensors] Accelerometer failed to accept configuration");
+        return false;
+    }
+
+    Serial.printf("[Sensors] Accelerometer WHO_AM_I=0x%02X (%s), library %s, "
+                  "configured manually\n",
+                  _mpuWhoAmI, describeMpuId(_mpuWhoAmI),
+                  libraryAccepted ? "accepted it" : "rejected it (expected)");
+    dumpMpuConfig();
+    return true;
+}
+
+void SensorManager::dumpMpuConfig() {
+    struct { uint8_t reg; const char* name; } regs[] = {
+        {MPU_REG_PWR_MGMT_1,   "PWR_MGMT_1  "},
+        {MPU_REG_PWR_MGMT_2,   "PWR_MGMT_2  "},
+        {MPU_REG_GYRO_CONFIG,  "GYRO_CONFIG "},
+        {MPU_REG_ACCEL_CONFIG, "ACCEL_CONFIG"},
+        {MPU_REG_CONFIG,       "CONFIG      "},
+        {MPU_REG_SMPLRT_DIV,   "SMPLRT_DIV  "},
+        {MPU_REG_WHO_AM_I,     "WHO_AM_I    "},
+    };
+    Serial.println("[Sensors] Accelerometer register state:");
+    for (auto& r : regs) {
+        Serial.printf("  %s (0x%02X) = 0x%02X\n",
+                      r.name, r.reg, readMpuRegister(r.reg));
+    }
+}
+
+void SensorManager::update() {
+    // Azimuth from the AS5600.
+    //
     // In this build the AS5600 chip is mounted upside-down on the rotating
     // assembly while the magnet stays stationary below it. With that
     // arrangement the chip's native angle already increases clockwise as
     // viewed from above (N -> E -> S -> W), matching the astronomical
     // alt/az convention, so no inversion is needed.
-    if (as5600Initialized) {
-        float az = as5600.getAngleDegrees();            // 0..360 (CW from above)
-        if (az >= 360.0f) az -= 360.0f;
-        if (az <    0.0f) az += 360.0f;
-        currentAzimuth = az;
+    if (_as5600Initialized) {
+        uint16_t ticks = _as5600.getRawAngle();
+        _sample.azimuthRawTicks = ticks;
+        _sample.azimuthDegrees = (ticks * 360.0f) / AS5600_COUNTS_PER_REV;
+        _sample.azimuthValid = true;
+    } else {
+        _sample.azimuthValid = false;
     }
-    
-    // Read acceleration from MPU6050 if initialized
-    if (mpu6050Initialized) {
+
+    // Altitude from the accelerometer, smoothed by a rolling average.
+    if (_mpu6050Initialized) {
+        // g and temp are unused.
         sensors_event_t a, g, temp;
-        mpu6050.getEvent(&a, &g, &temp);
-    
-        // Calculate altitude from accelerometer
-        float rawAltitude = calculateAltitudeFromAccel(a.acceleration.x, 
-                                                         a.acceleration.y, 
-                                                         a.acceleration.z);
-        
-        // Apply offset
-        rawAltitude -= altitudeOffset;
-        
-        // Add to rolling average buffer
-        altitudeSamples[sampleIndex] = rawAltitude;
-        sampleIndex = (sampleIndex + 1) % AVERAGE_SAMPLES;
-        if (sampleCount < AVERAGE_SAMPLES) {
-            sampleCount++;
+        _mpu6050.getEvent(&a, &g, &temp);
+
+        float rawAltitude = calculateAltitudeFromAccel(a.acceleration.x,
+                                                       a.acceleration.y,
+                                                       a.acceleration.z);
+
+        _altitudeSamples[_sampleIndex] = rawAltitude;
+        _sampleIndex = (_sampleIndex + 1) % AVERAGE_SAMPLES;
+        if (_sampleCount < AVERAGE_SAMPLES) {
+            _sampleCount++;
         }
-        
-        // Update averaged altitude
-        currentAltitude = getAveragedAltitude();
+
+        _sample.accelX = a.acceleration.x;
+        _sample.accelY = a.acceleration.y;
+        _sample.accelZ = a.acceleration.z;
+
+        // Sanity signal: with the bias removed this must sit near 9.81 in every
+        // orientation. Anything else means the sensor is misconfigured, and it
+        // is the cheapest way to catch that before it corrupts pointing.
+        float cx = a.acceleration.x - ACCEL_BIAS_X;
+        float cy = a.acceleration.y - ACCEL_BIAS_Y;
+        float cz = a.acceleration.z - ACCEL_BIAS_Z;
+        _sample.gravityMagnitude = sqrtf(cx*cx + cy*cy + cz*cz);
+        _sample.altitudeRawDegrees = rawAltitude;
+        _sample.altitudeDegrees = getAveragedAltitude();
+        _sample.altitudeValid = true;
+    } else {
+        _sample.altitudeValid = false;
+    }
+
+    _sample.averagedSamples = (uint8_t)_sampleCount;
+    _sample.timestamp = millis();
+}
+
+void SensorManager::refreshHealth() {
+    // Hot-plug detection, debounced. A sensor must miss SENSOR_ABSENT_THRESHOLD
+    // consecutive probes before it is treated as gone, so a one-off bus timeout
+    // does not knock an axis out mid-observation.
+    if (_as5600.isConnected()) {
+        _mpuWhoAmI = 0;
+    _as5600Misses = 0;
+        if (!_as5600Initialized) {
+            _as5600Initialized = initAS5600();
+            if (_as5600Initialized) {
+                Serial.println("[Sensors] AS5600 reconnected");
+            }
+        }
+    } else if (_as5600Initialized && ++_as5600Misses >= SENSOR_ABSENT_THRESHOLD) {
+        _as5600Initialized = false;
+        Serial.println("[Sensors] AS5600 disconnected");
+    }
+
+    if (probeMPU6050()) {
+        _mpu6050Misses = 0;
+        if (!_mpu6050Initialized) {
+            _mpu6050Initialized = initMPU6050();
+            if (_mpu6050Initialized) {
+                Serial.println("[Sensors] MPU6050 reconnected");
+            }
+        }
+    } else if (_mpu6050Initialized && ++_mpu6050Misses >= SENSOR_ABSENT_THRESHOLD) {
+        _mpu6050Initialized = false;
+        clearAltitudeAverage();
+        Serial.println("[Sensors] MPU6050 disconnected");
+    }
+
+    _health.azimuthSensorPresent = _as5600Initialized;
+    _health.altitudeSensorPresent = _mpu6050Initialized;
+
+    if (_health.azimuthSensorPresent) {
+        uint8_t status = _as5600.getStatus();
+        _health.magnetDetected = (status & 0x20) != 0;
+        _health.magnetTooWeak = (status & 0x10) != 0;
+        _health.magnetTooStrong = (status & 0x08) != 0;
+        _health.magnetAgc = _as5600.getAGC();
+        _health.magnetMagnitude = _as5600.getMagnitude();
+    } else {
+        _health.magnetDetected = false;
+        _health.magnetTooWeak = false;
+        _health.magnetTooStrong = false;
+        _health.magnetAgc = 0;
+        _health.magnetMagnitude = 0;
     }
 }
 
-TelescopePosition SensorManager::getPosition() {
-    TelescopePosition pos;
-    pos.azimuth = currentAzimuth;
-    pos.altitude = currentAltitude;
-    pos.valid = (as5600Initialized || mpu6050Initialized);
-    pos.timestamp = millis();
-    return pos;
+SensorSample SensorManager::getSample() const {
+    return _sample;
 }
 
-void SensorManager::calibrateAltitude() {
-    if (!mpu6050Initialized) return;
-    
-    // Read current altitude and set as zero offset
-    sensors_event_t a, g, temp;
-    mpu6050.getEvent(&a, &g, &temp);
-    
-    altitudeOffset = calculateAltitudeFromAccel(a.acceleration.x, 
-                                                  a.acceleration.y, 
-                                                  a.acceleration.z);
-    
-    Serial.print("Altitude calibrated. Offset: ");
-    Serial.println(altitudeOffset);
+SensorHealth SensorManager::getHealth() const {
+    return _health;
 }
 
-void SensorManager::setAzimuthZero() {
-    if (!as5600Initialized) return;
-    
-    uint16_t currentRaw = as5600.getRawAngle();
-    as5600.setZeroPosition(currentRaw);
-    
-    Serial.print("Azimuth zero set at raw value: ");
-    Serial.println(currentRaw);
-}
-
-bool SensorManager::isAS5600Connected() {
-    return as5600.isConnected();
-}
-
-bool SensorManager::isMPU6050Connected() {
-    Wire.beginTransmission(0x68);
-    return (Wire.endTransmission() == 0);
-}
-
-bool SensorManager::isMagnetOK() {
-    if (!as5600Initialized) return false;
-    return as5600.isMagnetDetected() && 
-           !as5600.isMagnetTooWeak() && 
-           !as5600.isMagnetTooStrong();
-}
-
-String SensorManager::getDiagnostics() {
+String SensorManager::describe() const {
     String diag = "Sensor Diagnostics:\n";
-    diag += "AS5600: " + String(isAS5600Connected() ? "Connected" : "Disconnected") + "\n";
-    diag += "MPU6050: " + String(isMPU6050Connected() ? "Connected" : "Disconnected") + "\n";
-    
-    if (isAS5600Connected()) {
-        diag += "Magnet Detected: " + String(as5600.isMagnetDetected() ? "Yes" : "No") + "\n";
-        diag += "Magnet Too Weak: " + String(as5600.isMagnetTooWeak() ? "Yes" : "No") + "\n";
-        diag += "Magnet Too Strong: " + String(as5600.isMagnetTooStrong() ? "Yes" : "No") + "\n";
-        diag += "AGC: " + String(as5600.getAGC()) + "\n";
-        diag += "Magnitude: " + String(as5600.getMagnitude()) + "\n";
+    diag += "  AS5600 (az):  " + String(_health.azimuthSensorPresent ? "Connected" : "Disconnected") + "\n";
+    diag += "  MPU6050 (alt): " + String(_health.altitudeSensorPresent ? "Connected" : "Disconnected") + "\n";
+
+    if (_health.azimuthSensorPresent) {
+        diag += "  Magnet detected:  " + String(_health.magnetDetected ? "Yes" : "No") + "\n";
+        diag += "  Magnet too weak:  " + String(_health.magnetTooWeak ? "Yes" : "No") + "\n";
+        diag += "  Magnet too strong: " + String(_health.magnetTooStrong ? "Yes" : "No") + "\n";
+        diag += "  AGC:       " + String(_health.magnetAgc) + "\n";
+        diag += "  Magnitude: " + String(_health.magnetMagnitude) + "\n";
     }
-    
-    diag += "Current Azimuth: " + String(currentAzimuth, 2) + "°\n";
-    diag += "Current Altitude: " + String(currentAltitude, 2) + "°\n";
-    diag += "Sample Count: " + String(sampleCount) + "/" + String(AVERAGE_SAMPLES) + "\n";
-    
+
+    diag += "  Azimuth:  " + String(_sample.azimuthDegrees, 2) + " deg (raw " + String(_sample.azimuthRawTicks) + ")\n";
+    diag += "  Altitude: " + String(_sample.altitudeDegrees, 2) + " deg (raw " + String(_sample.altitudeRawDegrees, 2) + ")\n";
+    diag += "  Gravity |g|: " + String(_sample.gravityMagnitude, 3) + " m/s^2 (expect ~9.81)\n";
+    diag += "  Averaged samples: " + String(_sample.averagedSamples) + "/" + String(AVERAGE_SAMPLES) + "\n";
+
     return diag;
 }
 
-float SensorManager::calculateAltitudeFromAccel(float ax, float ay, float az) {
-    // Calculate pitch angle from accelerometer
-    // Assuming the sensor is mounted on the tube with Y-axis along tube
-    // and Z-axis perpendicular to tube (pointing up when level)
-    
-    float pitch = atan2(-ax, sqrt(ay * ay + az * az)) * 180.0 / PI;
-    return pitch;
+float SensorManager::calculateAltitudeFromAccel(float ax, float ay, float az) const {
+    // Remove the chip's zero-g bias first. An off-centre gravity vector skews
+    // atan2 by several degrees in the middle of the range, which is invisible
+    // in a stationary reading and only shows up when the tube moves.
+    ax -= ACCEL_BIAS_X;
+    ay -= ACCEL_BIAS_Y;
+    az -= ACCEL_BIAS_Z;
+
+    // Pitch angle from the accelerometer. The sensor is mounted on the tube
+    // with the Y axis along the tube and Z perpendicular to it (pointing up
+    // when level).
+    return atan2(-ax, sqrt(ay * ay + az * az)) * 180.0 / PI;
 }
 
-float SensorManager::getAveragedAltitude() {
-    if (sampleCount == 0) return 0.0;
-    
-    float sum = 0.0;
-    for (int i = 0; i < sampleCount; i++) {
-        sum += altitudeSamples[i];
+float SensorManager::getAveragedAltitude() const {
+    if (_sampleCount == 0) return 0.0f;
+
+    float sum = 0.0f;
+    for (int i = 0; i < _sampleCount; i++) {
+        sum += _altitudeSamples[i];
     }
-    return sum / sampleCount;
+    return sum / _sampleCount;
+}
+
+void SensorManager::clearAltitudeAverage() {
+    // Drop the averaging window so readings from before a disconnect never
+    // blend into readings from after it.
+    //
+    // The last reported angle is deliberately left in place. BBox has no way to
+    // say "unknown", so holding the last known altitude is far less misleading
+    // to SkySafari than suddenly reporting the horizon.
+    _sampleIndex = 0;
+    _sampleCount = 0;
 }

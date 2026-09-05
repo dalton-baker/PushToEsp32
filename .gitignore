@@ -21,7 +21,3 @@
 # OS
 .DS_Store
 Thumbs.db
-
-# Credentials (if you add WiFi credentials)
-secrets.h
-credentials.h
