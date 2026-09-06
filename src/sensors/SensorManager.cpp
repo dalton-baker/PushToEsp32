@@ -127,6 +127,19 @@ bool SensorManager::initMPU6050() {
 
     _mpuWhoAmI = readMpuRegister(MPU_REG_WHO_AM_I);
 
+    // Did the sensor keep its power across this reset?
+    //
+    // CONFIG defaults to 0x00 at power-on and we always set it to 0x04, so
+    // reading 0x04 here means the chip was never power-cycled. An ESP32 reset
+    // alone does not power-cycle it; a genuine loss of the 3V3 rail does.
+    // This is how to tell whether a power switch really cuts the rail or merely
+    // resets the MCU while peripherals keep draining the battery.
+    uint8_t configBefore = readMpuRegister(MPU_REG_CONFIG);
+    Serial.printf("[Power] Sensor CONFIG before init = 0x%02X -> sensor %s\n",
+                  configBefore,
+                  configBefore == 0x04 ? "KEPT POWER across this reset"
+                                       : "WAS POWER-CYCLED (3V3 rail dropped)");
+
     // Creates the library's bus object, which getEvent() needs. It returns
     // false on anything that is not a genuine MPU6050; that is expected and not
     // fatal, because we configure the device ourselves below.
